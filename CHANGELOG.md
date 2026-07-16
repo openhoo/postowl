@@ -1,5 +1,15 @@
 # postowl Changelog
 
+## 0.5.2 (2026-07-16)
+
+### Bug Fixes
+
+- **tauri:** stabilize generated schemas (5c8b5e6)
+
+### Other Changes
+
+- add project README (5e4aca1)
+
 ## 0.5.1 (2026-07-16)
 
 ### Bug Fixes
