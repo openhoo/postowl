@@ -116,8 +116,7 @@ export default function UpdateNotice(props: UpdateNoticeProps) {
     <Show when={state().phase !== 'hidden'}>
       <aside
         class="fixed bottom-4 left-4 z-20 w-[min(28rem,calc(100vw-2rem))] overflow-hidden rounded-sm border border-border-strong bg-raised shadow-float before:absolute before:inset-x-0 before:top-0 before:h-0.75 before:bg-signal before:content-[''] max-[36rem]:bottom-2 max-[36rem]:left-2 max-[36rem]:w-[calc(100vw-1rem)]"
-        role={state().phase === 'error' ? 'alert' : 'status'}
-        aria-live={state().phase === 'error' ? 'assertive' : 'polite'}
+        aria-live="polite"
       >
         <Show when={downloading()}>
           {(current) => (
