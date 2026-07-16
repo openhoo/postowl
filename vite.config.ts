@@ -1,10 +1,10 @@
 import { defineConfig } from "vite";
-import { svelte } from "@sveltejs/vite-plugin-svelte";
+import solid from "vite-plugin-solid";
 
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [solid()],
   clearScreen: false,
   server: {
     port: 1420,

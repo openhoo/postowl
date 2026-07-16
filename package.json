@@ -7,17 +7,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "tsc --noEmit",
     "test:e2e:build": "pnpm build && cargo build --manifest-path src-tauri/Cargo.toml --features e2e,tauri/custom-protocol",
     "test:e2e": "wdio run ./wdio.conf.ts",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-dialog": "^2.7.1"
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "solid-js": "^1.9.9"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "vite-plugin-solid": "^2.11.10",
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^26.1.1",
     "@wdio/cli": "^9.29.1",
@@ -25,8 +26,6 @@
     "@wdio/mocha-framework": "^9.29.1",
     "@wdio/spec-reporter": "^9.29.1",
     "@wdio/tauri-service": "^1.2.0",
-    "svelte": "^5.56.5",
-    "svelte-check": "^4.7.2",
     "typescript": "^5.9.3",
     "vite": "^7.3.6"
   },
