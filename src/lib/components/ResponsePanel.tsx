@@ -10,10 +10,28 @@ interface ResponsePanelProps {
 }
 
 type ResponseTab = 'body' | 'headers' | 'assertions' | 'logs';
-type BodyView = 'raw' | 'pretty';
+type PreviewView = 'json' | 'xml' | 'html' | 'image';
+type BodyView = 'raw' | PreviewView;
+
+interface BodyPreview {
+  view: PreviewView;
+  label: string;
+  body: string;
+  oversized: boolean;
+}
 
 const RESPONSE_TABS = ['body', 'headers', 'assertions', 'logs'] as const;
-const MAX_PRETTY_BODY_LENGTH = 512 * 1024;
+const MAX_PREVIEW_BODY_LENGTH = 512 * 1024;
+const SAFE_IMAGE_TYPES: Record<string, true> = {
+  'image/avif': true,
+  'image/bmp': true,
+  'image/gif': true,
+  'image/jpeg': true,
+  'image/png': true,
+  'image/webp': true,
+  'image/x-icon': true
+};
+const HTML_PREVIEW_POLICY = "default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; font-src data:";
 
 function formatJsonLosslessly(source: string): string | null {
   try {
@@ -86,24 +104,143 @@ function formatJsonLosslessly(source: string): string | null {
   return formatted;
 }
 
+function formatXml(source: string): string | null {
+  const document = new DOMParser().parseFromString(source, 'application/xml');
+  if (document.querySelector('parsererror')) return null;
+
+  let depth = 0;
+  return source
+    .trim()
+    .replace(/>\s*</g, '><')
+    .replace(/></g, '>\n<')
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      if (/^<\//.test(trimmed)) depth = Math.max(0, depth - 1);
+      const formatted = `${'  '.repeat(depth)}${trimmed}`;
+      if (
+        /^<[^!?/][^>]*>$/.test(trimmed)
+        && !/\/>$/.test(trimmed)
+        && !/<\/[^>]+>$/.test(trimmed)
+      ) {
+        depth += 1;
+      }
+      return formatted;
+    })
+    .join('\n');
+}
+
+function responseContentType(response: ResponseData): string {
+  const header = response.headers.find(
+    (item) => item.encoding === 'utf8' && item.name.toLowerCase() === 'content-type'
+  );
+  return header?.value.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+}
+
+function safeHtmlDocument(body: string): string {
+  return `<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_POLICY}"><meta name="referrer" content="no-referrer">${body}`;
+}
+
+function previewForResponse(response: ResponseData | null): BodyPreview | null {
+  if (!response?.body) return null;
+  const contentType = responseContentType(response);
+
+  if (
+    response.bodyEncoding === 'base64'
+    && SAFE_IMAGE_TYPES[contentType]
+  ) {
+    return {
+      view: 'image',
+      label: 'Image',
+      body: `data:${contentType};base64,${response.body}`,
+      oversized: false
+    };
+  }
+  if (response.bodyEncoding === 'base64') return null;
+  if (response.body.length > MAX_PREVIEW_BODY_LENGTH) {
+    return { view: 'json', label: 'Preview', body: response.body, oversized: true };
+  }
+
+  if (contentType === 'application/json' || contentType.endsWith('+json')) {
+    const formatted = formatJsonLosslessly(response.body);
+    return formatted === null
+      ? null
+      : { view: 'json', label: 'JSON', body: formatted, oversized: false };
+  }
+  if (contentType === 'text/html') {
+    return {
+      view: 'html',
+      label: 'HTML',
+      body: safeHtmlDocument(response.body),
+      oversized: false
+    };
+  }
+  if (
+    contentType === 'application/xml'
+    || contentType === 'text/xml'
+    || contentType.endsWith('+xml')
+  ) {
+    const formatted = formatXml(response.body);
+    return formatted === null
+      ? null
+      : { view: 'xml', label: 'XML', body: formatted, oversized: false };
+  }
+
+  const json = formatJsonLosslessly(response.body);
+  if (json !== null) return { view: 'json', label: 'JSON', body: json, oversized: false };
+  if (/^\s*(?:<!doctype\s+html|<html|<head|<body)\b/i.test(response.body)) {
+    return {
+      view: 'html',
+      label: 'HTML',
+      body: safeHtmlDocument(response.body),
+      oversized: false
+    };
+  }
+  if (/^\s*<\?xml\b/i.test(response.body)) {
+    const xml = formatXml(response.body);
+    if (xml !== null) return { view: 'xml', label: 'XML', body: xml, oversized: false };
+  }
+  return null;
+}
+
 export default function ResponsePanel(props: ResponsePanelProps) {
   const [tab, setTab] = createSignal<ResponseTab>('body');
-  const [bodyView, setBodyView] = createSignal<BodyView>('raw');
-  const prettyBody = createMemo(() => {
-    if (props.response?.bodyEncoding === 'base64') {
-      return { available: false, body: props.response.body, oversized: false };
-    }
-    const body = props.response?.body ?? '';
-    if (!body) return { available: false, body, oversized: false };
-    if (body.length > MAX_PRETTY_BODY_LENGTH) {
-      return { available: false, body, oversized: true };
-    }
-    const formatted = formatJsonLosslessly(body);
-    return { available: formatted !== null, body: formatted ?? body, oversized: false };
+  const [bodyViewOverride, setBodyViewOverride] = createSignal<{
+    response: ResponseData;
+    view: BodyView;
+  } | null>(null);
+  const bodyPreview = createMemo(() => previewForResponse(props.response));
+  const bodyView = createMemo<BodyView>(() => {
+    const response = props.response;
+    const override = bodyViewOverride();
+    if (response && override?.response === response) return override.view;
+    const preview = bodyPreview();
+    return preview && !preview.oversized ? preview.view : 'raw';
   });
+  const bodyViewItems = createMemo(() => {
+    const items: Array<{ value: BodyView; label: string; disabled?: boolean; title?: string }> = [
+      { value: 'raw', label: 'Raw' }
+    ];
+    const preview = bodyPreview();
+    if (preview) {
+      items.push({
+        value: preview.view,
+        label: preview.label,
+        disabled: preview.oversized,
+        title: preview.oversized
+          ? 'Preview is disabled for bodies larger than 512 KiB.'
+          : undefined
+      });
+    }
+    return items;
+  });
+  const setBodyView = (view: BodyView) => {
+    const response = props.response;
+    if (response) setBodyViewOverride({ response, view });
+  };
   const displayedBody = createMemo(() => (
-    bodyView() === 'pretty' && prettyBody().available
-      ? prettyBody().body
+    bodyView() === 'json' || bodyView() === 'xml'
+      ? bodyPreview()?.body ?? props.response?.body ?? ''
       : props.response?.body ?? ''
   ));
   const passedCount = createMemo(() => props.response?.assertions.filter((item) => item.passed).length ?? 0);
@@ -244,22 +381,8 @@ export default function ResponsePanel(props: ResponsePanelProps) {
                       <p class="response-body-notice m-0 mb-3 shrink-0 text-xs leading-6 text-ink-muted">Binary response bytes are shown as base64. Decode this value to recover the exact captured payload.</p>
                     </Show>
                     <SegmentedControl
-                      items={[
-                        { value: 'raw', label: 'Raw' },
-                        {
-                          value: 'pretty',
-                          label: 'Pretty',
-                          disabled: response().bodyEncoding === 'base64' || !prettyBody().available,
-                          title: response().bodyEncoding === 'base64'
-                            ? 'Pretty view is unavailable for binary response bodies.'
-                            : prettyBody().oversized
-                              ? 'Pretty view is disabled for large captured bodies.'
-                              : prettyBody().available
-                                ? undefined
-                                : 'Pretty view requires valid JSON.'
-                        }
-                      ]}
-                      value={prettyBody().available ? bodyView() : 'raw'}
+                      items={bodyViewItems()}
+                      value={bodyView()}
                       onChange={setBodyView}
                       ariaLabel="Response body view"
                       class="mb-3 max-w-full shrink-0"
@@ -267,12 +390,32 @@ export default function ResponsePanel(props: ResponsePanelProps) {
                       activeClass="hover:text-raised"
                       inactiveClass="hover:text-naval"
                     />
-                    <Show when={prettyBody().oversized}>
+                    <Show when={bodyPreview()?.oversized}>
                       <p class="response-body-notice m-0 mb-3 shrink-0 text-xs leading-6 text-ink-muted">
-                        Raw captured content is shown. Pretty view is disabled above 512 KiB of captured text to avoid duplicating large payloads in memory.
+                        Raw captured content is shown. Preview is disabled above 512 KiB of captured text to avoid duplicating large payloads in memory.
                       </p>
                     </Show>
-                    <pre class="response-body m-0 min-h-0 flex-1 overflow-auto rounded-sm border border-hairline bg-raised p-4 font-data text-[0.8125rem] leading-[1.7] whitespace-pre-wrap text-naval [overflow-wrap:anywhere]">{displayedBody()}</pre>
+                    <Show
+                      when={bodyView() === 'html'}
+                      fallback={
+                        <Show
+                          when={bodyView() === 'image'}
+                          fallback={<pre class="response-body m-0 min-h-0 flex-1 overflow-auto rounded-sm border border-hairline bg-raised p-4 font-data text-[0.8125rem] leading-[1.7] whitespace-pre-wrap text-naval [overflow-wrap:anywhere]">{displayedBody()}</pre>}
+                        >
+                          <figure class="response-image m-0 grid min-h-0 flex-1 place-items-center overflow-auto rounded-sm border border-hairline bg-raised p-4">
+                            <img class="block max-h-full max-w-full object-contain" src={bodyPreview()?.body} alt="Response body preview" />
+                          </figure>
+                        </Show>
+                      }
+                    >
+                      <iframe
+                        class="response-html min-h-0 w-full flex-1 rounded-sm border border-hairline bg-white"
+                        title="Response HTML preview"
+                        sandbox=""
+                        referrerpolicy="no-referrer"
+                        srcdoc={bodyPreview()?.body}
+                      />
+                    </Show>
                   </Show>
                 </Show>
                 <Show when={tab() === 'headers'}>

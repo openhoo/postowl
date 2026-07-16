@@ -32,7 +32,7 @@ interface Expectation {
   toExist(): Promise<void>;
   toHaveText(expected: unknown): Promise<void>;
   toHaveValue(expected: unknown): Promise<void>;
-  toHaveAttribute(name: string, value: string): Promise<void>;
+  toHaveAttribute(name: string, value: unknown): Promise<void>;
   toBeFocused(): Promise<void>;
 }
 
@@ -206,12 +206,27 @@ describe('PostOwl native workspace', () => {
         });
         const payload = `{"largeId":9007199254740993,${serialized.slice(1)}`;
         const finish = () => {
+          let responseBody: string | Buffer = payload;
+          let contentType = 'application/json';
+          if (url.pathname === '/html') {
+            responseBody = '<!doctype html><html><body><main><h1>Flight preview</h1><p>Rendered safely.</p></main></body></html>';
+            contentType = 'text/html; charset=utf-8';
+          } else if (url.pathname === '/xml') {
+            responseBody = '<?xml version="1.0"?><flight><status>ready</status><crew count="2"/></flight>';
+            contentType = 'application/xml';
+          } else if (url.pathname === '/image') {
+            responseBody = Buffer.from(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+              'base64'
+            );
+            contentType = 'image/png';
+          }
           response.writeHead(201, {
-            'content-type': 'application/json',
+            'content-type': contentType,
             'x-echo-server': 'postowl-e2e',
-            'content-length': Buffer.byteLength(payload)
+            'content-length': Buffer.byteLength(responseBody)
           });
-          response.end(payload);
+          response.end(responseBody);
         };
         if (url.pathname === '/delayed') setTimeout(finish, 250);
         else finish();
@@ -327,7 +342,7 @@ describe('PostOwl native workspace', () => {
     const telemetry = aria('Response telemetry');
     await expect(telemetry).toHaveText(expect.stringMatching(/Elapsed\s*\d+\s+ms/));
     await expect(telemetry).toHaveText(expect.stringContaining('1/2'));
-    await aria('Response body view').$('button=Pretty').click();
+    await expect(aria('Response body view').$('button=JSON')).toHaveAttribute('aria-pressed', 'true');
     const responseBody = $('.response-body');
     await expect(responseBody).toHaveText(expect.stringContaining('"method": "POST"'));
     await expect(responseBody).toHaveText(expect.stringContaining('"source": "environment"'));
@@ -504,8 +519,23 @@ describe('PostOwl native workspace', () => {
     await aria('Post-response script').setValue("return { assertions: [{ name: 'recovery', passed: true, message: '' }], logs: ['valid again'] };");
     await sendAndWaitFor('201');
     await aria('Response details').$('button*=body').click();
-    await aria('Response body view').$('button=Pretty').click();
+    await expect(aria('Response body view').$('button=JSON')).toHaveAttribute('aria-pressed', 'true');
     await expect($('.response-body')).toHaveText(expect.stringContaining('"recovered": true'));
+
+    await aria('Request URL').setValue(`${echoOrigin}/html`);
+    await sendAndWaitFor('201');
+    await expect(aria('Response body view').$('button=HTML')).toHaveAttribute('aria-pressed', 'true');
+    await expect($('.response-html')).toHaveAttribute('srcdoc', expect.stringContaining('Flight preview'));
+
+    await aria('Request URL').setValue(`${echoOrigin}/xml`);
+    await sendAndWaitFor('201');
+    await expect(aria('Response body view').$('button=XML')).toHaveAttribute('aria-pressed', 'true');
+    await expect($('.response-body')).toHaveText(expect.stringContaining('<status>ready</status>'));
+
+    await aria('Request URL').setValue(`${echoOrigin}/image`);
+    await sendAndWaitFor('201');
+    await expect(aria('Response body view').$('button=Image')).toHaveAttribute('aria-pressed', 'true');
+    await expect($('.response-image img')).toHaveAttribute('src', expect.stringMatching(/^data:image\/png;base64,/));
 
     await aria('New unfiled request').click();
     await aria('Request name').setValue('Disposable request');
