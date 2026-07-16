@@ -34,7 +34,9 @@ const SCRIPT_STAGES = [
   { value: 'post', label: 'After response' }
 ] as const;
 const CONTROL_CLASS = 'min-h-control-default rounded-sm border border-hairline bg-raised px-2 py-1 hover:border-signal-line focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-48';
-const ACTION_CLASS = 'min-h-control-default whitespace-nowrap rounded-sm border border-hairline bg-raised px-3 py-1 text-[0.8125rem] font-[650] text-naval transition-[border-color,background-color,color,box-shadow,transform] duration-[140ms] ease-out hover:not-disabled:border-signal-line hover:not-disabled:bg-signal-soft hover:not-disabled:text-graphite active:not-disabled:translate-y-px focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-48';
+const ACTION_CLASS = 'min-h-control-default whitespace-nowrap rounded-sm border px-3 py-1 text-[0.8125rem] font-[650] transition-[border-color,background-color,color,box-shadow,transform] duration-[140ms] ease-out active:not-disabled:translate-y-px focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-48';
+const QUIET_ACTION_CLASS = 'border-hairline bg-raised text-naval hover:not-disabled:border-signal-line hover:not-disabled:bg-signal-soft hover:not-disabled:text-graphite';
+const DANGER_ACTION_CLASS = 'border-transparent bg-transparent text-coral-ink hover:not-disabled:border-coral-line hover:not-disabled:bg-coral-soft hover:not-disabled:text-coral-ink';
 const PRIMARY_ACTION_CLASS = 'border-naval bg-naval font-[750] text-raised shadow-[inset_0_0.125rem_var(--color-signal-bright)] hover:not-disabled:border-graphite hover:not-disabled:bg-graphite hover:not-disabled:text-raised';
 const CODE_EDITOR_CLASS = 'h-[calc(100%_-_3rem)] min-h-56 w-full resize-none rounded-sm border border-border-strong bg-reader p-4 font-data text-[0.8125rem] leading-[1.65] text-graphite [tab-size:2] placeholder:text-ink-faint hover:border-signal-line focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] aria-invalid:border-coral-line disabled:cursor-not-allowed disabled:opacity-48';
 
@@ -118,7 +120,7 @@ export default function RequestEditor(props: RequestEditorProps) {
         <div class="toolbar-actions flex items-center gap-2 max-[36rem]:w-full max-[36rem]:flex-wrap max-[36rem]:gap-1 [&_.action]:max-[36rem]:min-w-0 [&_.action]:max-[36rem]:flex-[1_1_auto]">
           <button
             type="button"
-            class={`action danger border-transparent bg-transparent text-coral-ink ${ACTION_CLASS} hover:not-disabled:border-coral-line hover:not-disabled:bg-coral-soft hover:not-disabled:text-coral-ink`}
+            class={`action danger ${ACTION_CLASS} ${DANGER_ACTION_CLASS}`}
             onClick={props.onDelete}
             disabled={props.busy}
           >
@@ -126,7 +128,7 @@ export default function RequestEditor(props: RequestEditorProps) {
           </button>
           <button
             type="button"
-            class={`action ${ACTION_CLASS}`}
+            class={`action ${ACTION_CLASS} ${QUIET_ACTION_CLASS}`}
             onClick={props.onSave}
             disabled={props.busy || !props.dirty}
             aria-keyshortcuts="Control+S Meta+S"

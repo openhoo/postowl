@@ -552,28 +552,34 @@ describe('PostOwl native workspace', () => {
     await expect($('[role="status"]')).toHaveText('Response recorded');
     await expect(aria('Response telemetry')).not.toExist();
     await aria('Disposable request, unfiled').click();
+    await aria('Request editor').$('button=Delete').click();
+    await expect($('[role="alertdialog"]')).toHaveText(expect.stringContaining('Delete “Disposable request”?'));
+    await button('Cancel').click();
+    await expect(aria('Request name')).toHaveValue('Disposable request');
+    await aria('Request editor').$('button=Delete').click();
+    await $('[role="alertdialog"]').$('button=Delete request').click();
+    await expect($('[role="status"]')).toHaveText('Request deleted');
+    await expect(aria('Disposable request, unfiled')).not.toExist();
+
 
     const workspaceValue = await nativeInvoke('get_workspace');
     if (!isWorkspace(workspaceValue)) throw new Error('Native workspace response was invalid');
-    const disposable = workspaceValue.requests.find((request) => request.name === 'Disposable request');
     const collection = workspaceValue.collections.find((item) => item.name === 'Echo collection');
     const environment = workspaceValue.environments.find((item) => item.name === 'Local echo');
-    if (!disposable || !collection || !environment) throw new Error('Expected persisted cleanup fixtures');
+    if (!collection || !environment) throw new Error('Expected persisted cleanup fixtures');
 
-    await expect(button('Delete')).toBeDisplayed();
     await expect(aria('Delete collection Echo collection')).toBeDisplayed();
     await button('History').click();
     await expect(button('Clear')).toBeDisplayed();
 
-    // WebDriver cannot control native confirmation dialogs and App owns the production
-    // handlers, so keep IPC fixture teardown explicitly separate from UI coverage above.
-    await nativeInvoke('delete_request', { id: disposable.id });
+    // Keep teardown for the unrelated collection, history, and environment fixtures
+    // separate from the request-deletion UI contract above.
     await nativeInvoke('delete_collection', { id: collection.id });
     await nativeInvoke('clear_history');
     await nativeInvoke('delete_environment', { id: environment.id });
     await refreshRenderer('h1=Ready for a request');
     await expect($('button=Echo request')).not.toExist();
-    await expect($('button=Disposable request')).not.toExist();
+    await expect(aria('Disposable request, unfiled')).not.toExist();
     await button('History').click();
     await expect($('strong=No recorded flights')).toBeDisplayed();
     await button('Environments').click();

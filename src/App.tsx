@@ -1,5 +1,5 @@
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js';
-import { confirm, open as openFile, save as saveFile } from '@tauri-apps/plugin-dialog';
+import { open as openFile, save as saveFile } from '@tauri-apps/plugin-dialog';
 import { commands } from './lib/api';
 import type { Collection, Environment, RequestDraft, ResponseData, Workspace } from './lib/types';
 import { clone, displayError, newCollection, newEnvironment, newRequest } from './lib/utils';
@@ -13,6 +13,14 @@ import { validateRequestDraft, type RequestValidationErrors } from './lib/valida
 
 type Mode = 'workspace' | 'history' | 'environments';
 type Toast = { tone: 'good' | 'bad'; text: string };
+type ConfirmationRequest = {
+  title: string;
+  message: string;
+  action: string;
+  danger: boolean;
+  returnFocus: HTMLElement | null;
+  resolve: (confirmed: boolean) => void;
+};
 const MAX_ENVIRONMENT_ROWS = 10_000;
 const MAX_NAME_BYTES = 1_024;
 const MAX_VALUE_BYTES = 1_048_576;
@@ -51,8 +59,10 @@ export default function App() {
   const [requestValidationErrors, setRequestValidationErrors] = createSignal<RequestValidationErrors>({});
   const [toast, setToast] = createSignal<Toast | null>(null);
   const [transferring, setTransferring] = createSignal(false);
+  const [confirmation, setConfirmation] = createSignal<ConfirmationRequest | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   let requestValidationController: RequestEditorValidationController | undefined;
+  let confirmationActionLabel: HTMLSpanElement | undefined;
 
   const savedRequest = createMemo(() => workspace()?.requests.find((item) => item.id === selectedRequestId()) ?? null);
   const dirty = createMemo(() => {
@@ -115,6 +125,32 @@ export default function App() {
     toastTimer = setTimeout(() => setToast(null), 3200);
   }
 
+  function askConfirmation(
+    message: string,
+    options: { title: string; action: string; danger?: boolean }
+  ): Promise<boolean> {
+    const { promise, resolve } = Promise.withResolvers<boolean>();
+    const activeElement = document.activeElement;
+    setConfirmation({
+      title: options.title,
+      message,
+      action: options.action,
+      danger: options.danger ?? false,
+      returnFocus: activeElement instanceof HTMLElement ? activeElement : null,
+      resolve
+    });
+    queueMicrotask(() => confirmationActionLabel?.closest('button')?.focus());
+    return promise;
+  }
+
+  function answerConfirmation(confirmed: boolean) {
+    const current = confirmation();
+    if (!current) return;
+    setConfirmation(null);
+    current.resolve(confirmed);
+    queueMicrotask(() => current.returnFocus?.focus());
+  }
+
   function updateWorkspace(updater: (current: Workspace) => Workspace) {
     setWorkspace((current) => current ? updater(current) : current);
   }
@@ -163,17 +199,17 @@ export default function App() {
   }
 
   async function canDiscardRequestChanges() {
-    return !dirty() || await confirm('Discard the unsaved changes to this request?', {
+    return !dirty() || await askConfirmation('Discard the unsaved changes to this request?', {
       title: 'Unsaved request',
-      kind: 'warning'
+      action: 'Discard changes'
     });
   }
 
   async function canDiscardEnvironmentChanges() {
     if (!environmentDirty()) return true;
-    const discard = await confirm('Discard the unsaved changes to this environment?', {
+    const discard = await askConfirmation('Discard the unsaved changes to this environment?', {
       title: 'Unsaved environment',
-      kind: 'warning'
+      action: 'Discard changes'
     });
     if (discard) {
       const saved = savedEnvironment();
@@ -301,7 +337,11 @@ export default function App() {
     const message = deletingEditedRequest
       ? `Delete “${collection.name}”, every request inside it, and the unsaved changes to “${draft()!.name}”?`
       : `Delete “${collection.name}” and every request inside it?`;
-    if (!workspace() || !await confirm(message, { title: 'Delete collection', kind: 'warning' })) return;
+    if (!workspace() || !await askConfirmation(message, {
+      title: 'Delete collection',
+      action: 'Delete collection',
+      danger: true
+    })) return;
     try {
       await commands.deleteCollection(collection.id);
       const refreshed = await commands.getWorkspace();
@@ -327,7 +367,11 @@ export default function App() {
   }
 
   async function deleteRequest(request = draft()) {
-    if (!workspace() || !request || requestBusy() || !await confirm(`Delete “${request.name}”?`, { title: 'Delete request', kind: 'warning' })) return;
+    if (!workspace() || !request || requestBusy() || !await askConfirmation(`Delete “${request.name}”?`, {
+      title: 'Delete request',
+      action: 'Delete request',
+      danger: true
+    })) return;
     setDeleting(true);
     try {
       await commands.deleteRequest(request.id);
@@ -350,7 +394,11 @@ export default function App() {
   }
 
   async function clearHistory() {
-    if (!workspace() || !await confirm('Clear all recorded request history? This cannot be undone.', { title: 'Clear history', kind: 'warning' })) return;
+    if (!workspace() || !await askConfirmation('Clear all recorded request history? This cannot be undone.', {
+      title: 'Clear history',
+      action: 'Clear history',
+      danger: true
+    })) return;
     try {
       await commands.clearHistory();
       updateWorkspace((value) => ({ ...value, history: [] }));
@@ -405,7 +453,11 @@ export default function App() {
 
   async function deleteEnvironment() {
     const current = environmentDraft();
-    if (!workspace() || !current || requestBusy() || !await confirm(`Delete “${current.name}”?`, { title: 'Delete environment', kind: 'warning' })) return;
+    if (!workspace() || !current || requestBusy() || !await askConfirmation(`Delete “${current.name}”?`, {
+      title: 'Delete environment',
+      action: 'Delete environment',
+      danger: true
+    })) return;
     setDeleting(true);
     try {
       await commands.deleteEnvironment(current.id);
@@ -430,9 +482,9 @@ export default function App() {
     if (transferring()) return;
     setTransferring(true);
     try {
-      if (!await confirm('This export includes request URLs, headers, query parameters, bodies, scripts, environment values, and recorded response history. These may contain credentials or private data. Continue?', {
+      if (!await askConfirmation('This export includes request URLs, headers, query parameters, bodies, scripts, environment values, and recorded response history. These may contain credentials or private data. Continue?', {
         title: 'Export sensitive workspace data',
-        kind: 'warning'
+        action: 'Export workspace'
       })) return;
       const path = await saveFile({ title: 'Export PostOwl workspace', defaultPath: 'postowl-workspace.json', filters: [{ name: 'PostOwl workspace', extensions: ['json'] }] });
       if (!path) return;
@@ -451,7 +503,11 @@ export default function App() {
     try {
       const selected = await openFile({ title: 'Import PostOwl workspace', multiple: false, directory: false, filters: [{ name: 'PostOwl workspace', extensions: ['json'] }] });
       const path = Array.isArray(selected) ? selected[0] : selected;
-      if (!path || !await confirm('Importing replaces the current workspace. Continue?', { title: 'Import workspace', kind: 'warning' })) return;
+      if (!path || !await askConfirmation('Importing replaces the current workspace. Continue?', {
+        title: 'Import workspace',
+        action: 'Replace workspace',
+        danger: true
+      })) return;
       const imported = await commands.importWorkspace(path);
       setWorkspace(imported);
       setSelectedRequestId(imported.requests[0]?.id ?? null);
@@ -474,6 +530,11 @@ export default function App() {
     document.title = 'PostOwl — REST flight recorder';
     void loadWorkspace();
     const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && confirmation()) {
+        event.preventDefault();
+        answerConfirmation(false);
+        return;
+      }
       if (!(event.metaKey || event.ctrlKey)) return;
       if (event.key === 'Enter' && mode() === 'workspace' && draft()) { event.preventDefault(); void sendRequest(); }
       if (event.key.toLowerCase() === 's' && mode() === 'workspace' && draft()) { event.preventDefault(); void saveRequest(); }
@@ -482,6 +543,11 @@ export default function App() {
     onCleanup(() => {
       window.removeEventListener('keydown', handleKeydown);
       clearTimeout(toastTimer);
+      const currentConfirmation = confirmation();
+      if (currentConfirmation) {
+        setConfirmation(null);
+        currentConfirmation.resolve(false);
+      }
     });
   });
 
@@ -629,6 +695,47 @@ export default function App() {
       </Show>
 
       <Show when={toast()} keyed>{(currentToast) => <div class="toast fixed right-4 bottom-4 z-20 flex max-w-md items-center gap-2 rounded-sm border border-hairline bg-raised px-4 py-3 text-graphite shadow-float animate-[toast-in_180ms_var(--ease-out)] motion-reduce:animate-none max-[36rem]:right-2 max-[36rem]:bottom-2 max-[36rem]:left-2 max-[36rem]:max-w-none" classList={{ bad: currentToast.tone === 'bad' }} role={currentToast.tone === 'bad' ? 'alert' : 'status'} aria-live={currentToast.tone === 'bad' ? 'assertive' : 'polite'}><span class="size-[0.4375rem] rounded-full" classList={{ 'bg-signal': currentToast.tone === 'good', 'bg-coral': currentToast.tone === 'bad' }} />{currentToast.text}</div>}</Show>
+      <Show when={confirmation()} keyed>
+        {(currentConfirmation) => (
+          <div
+            class="fixed inset-0 z-30 grid place-items-center bg-[rgb(20_42_58/0.46)] p-4 backdrop-blur-[1px]"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) answerConfirmation(false);
+            }}
+          >
+            <section
+              class="relative w-full max-w-md overflow-hidden rounded-sm border border-border-strong bg-raised shadow-float before:absolute before:inset-x-0 before:top-0 before:h-0.75 before:bg-signal before:content-['']"
+              classList={{ 'before:bg-coral': currentConfirmation.danger }}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="confirmation-title"
+              aria-describedby="confirmation-message"
+            >
+              <div class="border-b border-hairline px-5 pt-6 pb-4">
+                <span
+                  class="mb-2 block font-data text-[0.6875rem] leading-none font-bold tracking-[0.07em] text-signal-ink uppercase"
+                  classList={{ 'text-coral-ink': currentConfirmation.danger }}
+                >
+                  {currentConfirmation.danger ? 'Destructive action' : 'Confirmation required'}
+                </span>
+                <h2 id="confirmation-title" class="m-0 text-lg font-[750] text-graphite">{currentConfirmation.title}</h2>
+              </div>
+              <p id="confirmation-message" class="m-0 px-5 py-5 text-[0.875rem] leading-6 text-naval">{currentConfirmation.message}</p>
+              <div class="flex justify-end gap-2 border-t border-hairline bg-canvas px-5 py-4">
+                <ActionButton onClick={() => answerConfirmation(false)}>Cancel</ActionButton>
+                <ActionButton
+                  tone="primary"
+                  onClick={() => answerConfirmation(true)}
+                  ariaLabel={currentConfirmation.action}
+                >
+                  <span ref={confirmationActionLabel}>{currentConfirmation.action}</span>
+                </ActionButton>
+              </div>
+            </section>
+          </div>
+        )}
+      </Show>
+
     </div>
   );
 }

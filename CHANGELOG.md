@@ -39,6 +39,8 @@
 - Harden request, environment, workspace import, and persistence validation.
 - Preserve exact response JSON values with raw and lossless pretty views.
 - Automatically select JSON, XML, sandboxed HTML, and image response previews from the response content type.
+- Keep primary request actions legible by isolating their foreground and surface styles from quiet buttons.
+- Replace unreliable native confirmation prompts with an accessible in-app dialog so request deletion completes consistently.
 - Improve keyboard navigation, responsive layouts, field errors, dirty-state protection, and accessible control labels.
 - Prevent request-operation races and stale script-produced environment updates.
 - Make native end-to-end tests rebuild reliably on Node 26 and Wayland workstations.
