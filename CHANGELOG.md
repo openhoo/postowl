@@ -1,5 +1,11 @@
 # postowl Changelog
 
+## 0.4.0 (2026-07-16)
+
+### Features
+
+- **ui:** migrate to Tailwind CSS (846fc4f)
+
 ## 0.3.1 (2026-07-16)
 
 ### Other Changes
