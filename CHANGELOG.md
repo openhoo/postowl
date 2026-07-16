@@ -1,5 +1,15 @@
 # postowl Changelog
 
+## 0.5.0 (2026-07-16)
+
+### Features
+
+- **response:** add adaptive previews (485f4cb)
+
+### Other Changes
+
+- **tauri:** sync generated metadata (38aa729)
+
 ## 0.4.1 (2026-07-16)
 
 ### Bug Fixes
