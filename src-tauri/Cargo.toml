@@ -12,7 +12,7 @@ name = "postowl_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-e2e = ["dep:tauri-plugin-wdio-webdriver"]
+e2e = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -27,7 +27,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-tauri-plugin-wdio-webdriver = { version = "1.2.0", optional = true }
+tauri-plugin-wdio-webdriver = "1.2.0"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 
