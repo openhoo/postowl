@@ -210,8 +210,9 @@ jobs:
         run: |
           set -euo pipefail
           checksum_file="${RELEASE_TAG}-${{ matrix.label }}-SHA256SUMS.txt"
-          find src-tauri/target -path '*/release/bundle/*' -type f -print0 \
-            | sort -z \
-            | xargs -0 sha256sum > "$checksum_file"
+          bundle_root="src-tauri/target/release/bundle"
+          for file in "$bundle_root"/*/*; do
+            test ! -f "$file" || printf '%s\0' "$file"
+          done | sort -z | xargs -0 sha256sum > "$checksum_file"
           test -s "$checksum_file"
           gh release upload "$RELEASE_TAG" "$checksum_file" --clobber
