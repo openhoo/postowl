@@ -1,6 +1,6 @@
 {
   "name": "postowl",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "description": "A fast, native REST workspace",
   "type": "module",

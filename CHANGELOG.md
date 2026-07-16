@@ -1,5 +1,11 @@
 # postowl Changelog
 
+## 0.5.3 (2026-07-16)
+
+### Performance
+
+- reduce runtime and release footprint (341a35a)
+
 ## 0.5.2 (2026-07-16)
 
 ### Bug Fixes
