@@ -1,5 +1,11 @@
 # postowl Changelog
 
+## 0.2.2 (2026-07-16)
+
+### Bug Fixes
+
+- harden native desktop workflows (8eaf011)
+
 ## 0.2.1 (2026-07-16)
 
 ### Bug Fixes
