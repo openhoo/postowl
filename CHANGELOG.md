@@ -1,5 +1,15 @@
 # postowl Changelog
 
+## 0.6.0 (2026-07-16)
+
+### Features
+
+- **updater:** add automatic updates (5b91e24)
+
+### Bug Fixes
+
+- **updater:** isolate update announcements (7ccbce6)
+
 ## 0.5.3 (2026-07-16)
 
 ### Performance
