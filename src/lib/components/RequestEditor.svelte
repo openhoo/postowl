@@ -51,7 +51,7 @@
 
   <div class="request-line">
     <select class={`method method-${draft.method.toLowerCase()}`} bind:value={draft.method} aria-label="HTTP method">
-      {#each METHODS as method}<option>{method}</option>{/each}
+      {#each METHODS as method}<option value={method}>{method}</option>{/each}
     </select>
     <input class="url-input mono" bind:value={draft.url} aria-label="Request URL" placeholder="https://api.example.com/resource" spellcheck="false" />
     <ActionButton tone="primary" onclick={onsend} disabled={sending || !draft.url.trim()}>{sending ? 'Sending…' : 'Send'} <kbd>⌘↵</kbd></ActionButton>

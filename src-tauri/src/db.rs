@@ -117,8 +117,17 @@ pub fn save_environment(conn: &Connection, mut value: Environment) -> AppResult<
 
 pub fn delete(conn: &Connection, table: &str, id: &str) -> AppResult<()> {
     validate_id(id)?;
+    if table == "collections" {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM requests WHERE json_extract(data, '$.collectionId')=?1",
+            [id],
+        )?;
+        tx.execute("DELETE FROM collections WHERE id=?1", [id])?;
+        tx.commit()?;
+        return Ok(());
+    }
     let sql = match table {
-        "collections" => "DELETE FROM collections WHERE id=?1",
         "requests" => "DELETE FROM requests WHERE id=?1",
         "environments" => "DELETE FROM environments WHERE id=?1",
         _ => return Err(AppError::State("invalid table".into())),
@@ -308,9 +317,231 @@ pub fn export(conn: &Connection, path: &Path) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{fs, path::PathBuf};
+
+    fn temp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("postowl-{name}-{}.sqlite", Uuid::new_v4()))
+    }
+
+    fn collection(id: &str) -> Collection {
+        Collection {
+            id: id.into(),
+            name: format!("Collection {id}"),
+            description: "description".into(),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    fn request_value(id: &str, collection_id: Option<&str>) -> Request {
+        Request {
+            id: id.into(),
+            name: format!("Request {id}"),
+            collection_id: collection_id.map(str::to_owned),
+            method: "POST".into(),
+            url: "https://example.test/resource".into(),
+            headers: vec![],
+            query: vec![],
+            body_mode: BodyMode::Json,
+            body: r#"{"ok":true}"#.into(),
+            pre_request_script: String::new(),
+            post_response_script: String::new(),
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    fn environment_value(id: &str) -> Environment {
+        Environment {
+            id: id.into(),
+            name: format!("Environment {id}"),
+            variables: vec![NamedValue {
+                id: "variable".into(),
+                name: "token".into(),
+                value: "secret".into(),
+                enabled: true,
+            }],
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    fn history(id: &str, executed_at: i64) -> HistoryEntry {
+        HistoryEntry {
+            id: id.into(),
+            request_id: "request".into(),
+            request_name: "Request".into(),
+            method: "GET".into(),
+            url: "https://example.test".into(),
+            executed_at,
+            response: ResponseData {
+                status: Some(200),
+                headers: vec![],
+                body: id.into(),
+                elapsed: 1,
+                size: id.len() as u64,
+                truncated: false,
+                assertions: vec![],
+                logs: vec![],
+                error: None,
+            },
+        }
+    }
 
     #[test]
-    fn native_validation_rejects_wrong_schema_and_version() {
+    fn sqlite_crud_and_history_clear_are_observable() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        let saved_collection = save_collection(&conn, collection("collection")).unwrap();
+        let saved_request =
+            save_request(&conn, request_value("request", Some("collection"))).unwrap();
+        let saved_environment = save_environment(&conn, environment_value("environment")).unwrap();
+        add_history(&conn, &history("history", 10)).unwrap();
+
+        assert!(saved_collection.created_at > 0);
+        assert!(saved_request.updated_at > 0);
+        assert!(saved_environment.created_at > 0);
+        assert_eq!(request(&conn, "request").unwrap().body, r#"{"ok":true}"#);
+        assert_eq!(
+            environment(&conn, "environment").unwrap().variables[0].value,
+            "secret"
+        );
+        let snapshot = workspace(&conn).unwrap();
+        assert_eq!(snapshot.collections.len(), 1);
+        assert_eq!(snapshot.requests.len(), 1);
+        assert_eq!(snapshot.environments.len(), 1);
+        assert_eq!(snapshot.history.len(), 1);
+
+        delete(&conn, "requests", "request").unwrap();
+        delete(&conn, "collections", "collection").unwrap();
+        delete(&conn, "environments", "environment").unwrap();
+        clear_history(&conn).unwrap();
+        let snapshot = workspace(&conn).unwrap();
+        assert!(snapshot.collections.is_empty());
+        assert!(snapshot.requests.is_empty());
+        assert!(snapshot.environments.is_empty());
+        assert!(snapshot.history.is_empty());
+        assert!(request(&conn, "request").is_err());
+        assert!(environment(&conn, "environment").is_err());
+    }
+
+    #[test]
+    fn deleting_collection_cascades_to_its_requests() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        save_collection(&conn, collection("collection")).unwrap();
+        save_request(&conn, request_value("child", Some("collection"))).unwrap();
+        save_request(&conn, request_value("unrelated", None)).unwrap();
+
+        delete(&conn, "collections", "collection").unwrap();
+
+        let requests = workspace(&conn).unwrap().requests;
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].id, "unrelated");
+    }
+
+    #[test]
+    fn history_is_newest_first_and_capped() {
+        let conn = open(Path::new(":memory:")).unwrap();
+        for index in 0..HISTORY_LIMIT + 7 {
+            add_history(
+                &conn,
+                &history(&format!("history-{index:04}"), index as i64),
+            )
+            .unwrap();
+        }
+        let entries = workspace(&conn).unwrap().history;
+        assert_eq!(entries.len(), HISTORY_LIMIT);
+        assert_eq!(entries.first().unwrap().executed_at, 506);
+        assert_eq!(entries.last().unwrap().executed_at, 7);
+    }
+
+    #[test]
+    fn file_database_survives_reopen() {
+        let path = temp_path("reopen");
+        {
+            let conn = open(&path).unwrap();
+            save_collection(&conn, collection("persisted")).unwrap();
+            save_request(&conn, request_value("request", Some("persisted"))).unwrap();
+            save_environment(&conn, environment_value("environment")).unwrap();
+            add_history(&conn, &history("history", 1)).unwrap();
+        }
+        let reopened = open(&path).unwrap();
+        let snapshot = workspace(&reopened).unwrap();
+        assert_eq!(snapshot.collections[0].id, "persisted");
+        assert_eq!(snapshot.requests[0].id, "request");
+        assert_eq!(snapshot.environments[0].id, "environment");
+        assert_eq!(snapshot.history[0].id, "history");
+        drop(reopened);
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = fs::remove_file(path.with_extension("sqlite-shm"));
+    }
+
+    #[test]
+    fn native_export_import_roundtrip_replaces_workspace() {
+        let source_path = temp_path("export-source");
+        let target_path = temp_path("export-target");
+        let export_path = temp_path("workspace-json");
+        {
+            let source = open(&source_path).unwrap();
+            save_collection(&source, collection("collection")).unwrap();
+            save_request(&source, request_value("request", Some("collection"))).unwrap();
+            save_environment(&source, environment_value("environment")).unwrap();
+            add_history(&source, &history("history", 42)).unwrap();
+            export(&source, &export_path).unwrap();
+        }
+        let encoded: NativeWorkspace =
+            serde_json::from_slice(&fs::read(&export_path).unwrap()).unwrap();
+        assert_eq!(encoded.schema, "postowl.workspace");
+        assert_eq!(encoded.version, 1);
+
+        let mut target = open(&target_path).unwrap();
+        save_collection(&target, collection("old")).unwrap();
+        let imported = import(&mut target, &export_path).unwrap();
+        assert_eq!(imported.collections[0].id, "collection");
+        let snapshot = workspace(&target).unwrap();
+        assert_eq!(snapshot.collections.len(), 1);
+        assert_eq!(snapshot.collections[0].id, "collection");
+        assert_eq!(
+            snapshot.requests[0].collection_id.as_deref(),
+            Some("collection")
+        );
+        assert_eq!(snapshot.environments[0].variables[0].value, "secret");
+        assert_eq!(snapshot.history[0].response.body, "history");
+        drop(target);
+        for path in [source_path, target_path, export_path] {
+            let _ = fs::remove_file(path);
+        }
+    }
+
+    #[test]
+    fn malformed_or_invalid_import_leaves_existing_workspace_intact() {
+        let db_path = temp_path("rollback");
+        let import_path = temp_path("invalid-import");
+        let mut conn = open(&db_path).unwrap();
+        save_collection(&conn, collection("existing")).unwrap();
+
+        fs::write(&import_path, b"{not json").unwrap();
+        assert!(import(&mut conn, &import_path).is_err());
+        assert_eq!(workspace(&conn).unwrap().collections[0].id, "existing");
+
+        let invalid = NativeWorkspace {
+            schema: "postowl.workspace".into(),
+            version: 1,
+            workspace: Workspace {
+                requests: vec![request_value("orphan", Some("missing"))],
+                ..Workspace::default()
+            },
+        };
+        fs::write(&import_path, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert!(import(&mut conn, &import_path).is_err());
+        assert_eq!(workspace(&conn).unwrap().collections[0].id, "existing");
+        drop(conn);
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_file(import_path);
+    }
+
+    #[test]
+    fn native_validation_rejects_wrong_schema_version_duplicates_and_orphans() {
         let mut value = NativeWorkspace {
             schema: "other".into(),
             version: 1,
@@ -320,6 +551,25 @@ mod tests {
         value.schema = "postowl.workspace".into();
         value.version = 2;
         assert!(validate_native(value).is_err());
+
+        let duplicate = NativeWorkspace {
+            schema: "postowl.workspace".into(),
+            version: 1,
+            workspace: Workspace {
+                collections: vec![collection("duplicate"), collection("duplicate")],
+                ..Workspace::default()
+            },
+        };
+        assert!(validate_native(duplicate).is_err());
+        let orphan = NativeWorkspace {
+            schema: "postowl.workspace".into(),
+            version: 1,
+            workspace: Workspace {
+                requests: vec![request_value("request", Some("missing"))],
+                ..Workspace::default()
+            },
+        };
+        assert!(validate_native(orphan).is_err());
     }
 
     #[test]
@@ -330,25 +580,5 @@ mod tests {
             workspace: Workspace::default(),
         };
         assert!(validate_native(value).is_ok());
-    }
-    #[test]
-    fn native_validation_rejects_duplicate_ids() {
-        let collection = Collection {
-            id: "duplicate".into(),
-            name: "One".into(),
-            description: String::new(),
-            created_at: 0,
-            updated_at: 0,
-        };
-        let workspace = Workspace {
-            collections: vec![collection.clone(), collection],
-            ..Workspace::default()
-        };
-        let value = NativeWorkspace {
-            schema: "postowl.workspace".into(),
-            version: 1,
-            workspace,
-        };
-        assert!(validate_native(value).is_err());
     }
 }

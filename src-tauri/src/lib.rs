@@ -4,6 +4,8 @@ mod error;
 mod model;
 mod script;
 
+#[cfg(feature = "e2e")]
+use std::path::PathBuf;
 use std::{fs, sync::Mutex, time::Duration};
 
 use commands::AppState;
@@ -11,9 +13,18 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    #[cfg(feature = "e2e")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    builder
         .setup(|app| {
+            #[cfg(feature = "e2e")]
+            let app_data = std::env::var_os("POSTOWL_DATA_DIR")
+                .map(PathBuf::from)
+                .ok_or_else(|| {
+                    std::io::Error::other("POSTOWL_DATA_DIR is required for e2e builds")
+                })?;
+            #[cfg(not(feature = "e2e"))]
             let app_data = app.path().app_data_dir()?;
             fs::create_dir_all(&app_data)?;
             let connection = db::open(&app_data.join("postowl.sqlite3"))?;

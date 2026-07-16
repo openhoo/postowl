@@ -464,50 +464,223 @@ mod tests {
     use super::*;
     use std::{
         io::{Read, Write},
-        net::TcpListener,
+        net::{TcpListener, TcpStream},
+        sync::mpsc,
         thread,
     };
 
-    #[test]
-    fn interpolation_handles_adjacent_and_scalar_values() {
-        let vars = Map::from_iter([
-            ("host".into(), Value::String("example.test".into())),
-            ("port".into(), Value::from(443)),
-        ]);
-        assert_eq!(
-            interpolate("https://{{host}}:{{ port }}/", &vars).unwrap(),
-            "https://example.test:443/"
-        );
+    fn item(name: &str, value: &str, enabled: bool) -> NamedValue {
+        NamedValue {
+            id: Uuid::new_v4().to_string(),
+            name: name.into(),
+            value: value.into(),
+            enabled,
+        }
     }
 
-    #[test]
-    fn interpolation_rejects_missing_and_unclosed_variables() {
-        assert!(interpolate("{{missing}}", &Map::new()).is_err());
-        assert!(interpolate("{{missing", &Map::new()).is_err());
-    }
-    #[test]
-    fn performs_http_request_and_captures_response() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut request = [0_u8; 1024];
-            let _ = stream.read(&mut request);
-            stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}").unwrap();
-        });
-        let request = ScriptRequest {
+    fn script_request(url: String) -> ScriptRequest {
+        ScriptRequest {
             method: "GET".into(),
-            url: format!("http://{address}/health"),
+            url,
             headers: vec![],
             query: vec![],
             body_mode: BodyMode::None,
             body: String::new(),
+        }
+    }
+
+    fn read_http_request(stream: &mut TcpStream) -> Vec<u8> {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let mut received = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        let mut expected = None;
+        loop {
+            let count = stream.read(&mut buffer).unwrap();
+            if count == 0 {
+                break;
+            }
+            received.extend_from_slice(&buffer[..count]);
+            if expected.is_none() {
+                if let Some(header_end) = received.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&received[..header_end]);
+                    let content_length = headers
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    expected = Some(header_end + 4 + content_length);
+                }
+            }
+            if expected.is_some_and(|length| received.len() >= length) {
+                break;
+            }
+        }
+        received
+    }
+
+    #[test]
+    fn interpolation_handles_adjacent_scalar_and_null_values() {
+        let vars = Map::from_iter([
+            ("host".into(), Value::String("example.test".into())),
+            ("port".into(), Value::from(443)),
+            ("enabled".into(), Value::Bool(true)),
+            ("empty".into(), Value::Null),
+        ]);
+        assert_eq!(
+            interpolate("https://{{host}}:{{ port }}/{{enabled}}{{empty}}", &vars).unwrap(),
+            "https://example.test:443/true"
+        );
+    }
+
+    #[test]
+    fn interpolation_rejects_missing_unclosed_empty_and_composite_variables() {
+        assert!(interpolate("{{missing}}", &Map::new()).is_err());
+        assert!(interpolate("{{missing", &Map::new()).is_err());
+        assert!(interpolate("{{ }}", &Map::new()).is_err());
+        let vars = Map::from_iter([("object".into(), Value::Object(Map::new()))]);
+        assert!(interpolate("{{object}}", &vars).is_err());
+    }
+
+    #[test]
+    fn performs_http_query_headers_and_json_body() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, received) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            sent.send(read_http_request(&mut stream)).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 201 Created\r\nX-Reply: yes\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
+                )
+                .unwrap();
+        });
+        let request = ScriptRequest {
+            method: "post".into(),
+            url: format!("http://{address}/items"),
+            headers: vec![
+                item("X-Test", "present", true),
+                item("X-Disabled", "absent", false),
+            ],
+            query: vec![
+                item("search", "owl space", true),
+                item("disabled", "no", false),
+            ],
+            body_mode: BodyMode::Json,
+            body: r#"{"name":"postowl"}"#.into(),
         };
         let client = Client::builder().build().unwrap();
         let response = tauri::async_runtime::block_on(perform(&client, &request)).unwrap();
+        let wire = String::from_utf8(received.recv().unwrap()).unwrap();
         server.join().unwrap();
-        assert_eq!(response.status, Some(200));
-        assert_eq!(response.body, "{\"ok\":true}");
+        assert!(wire.starts_with("POST /items?search=owl+space HTTP/1.1\r\n"));
+        assert!(
+            wire.to_ascii_lowercase()
+                .contains("\r\nx-test: present\r\n")
+        );
+        assert!(!wire.to_ascii_lowercase().contains("x-disabled"));
+        assert!(wire.ends_with(r#"{"name":"postowl"}"#));
+        assert_eq!(response.status, Some(201));
+        assert_eq!(response.body, r#"{"ok":true}"#);
         assert_eq!(response.size, 11);
+        assert!(
+            response
+                .headers
+                .iter()
+                .any(|header| header.name == "x-reply" && header.value == "yes")
+        );
+    }
+
+    #[test]
+    fn form_body_is_encoded_by_http_client() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, received) = mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            sent.send(read_http_request(&mut stream)).unwrap();
+            stream
+                .write_all(b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+                .unwrap();
+        });
+        let mut request = script_request(format!("http://{address}/form"));
+        request.method = "POST".into();
+        request.body_mode = BodyMode::Form;
+        request.body = "name=post owl&empty".into();
+        let client = Client::new();
+        let response = tauri::async_runtime::block_on(perform(&client, &request)).unwrap();
+        let wire = String::from_utf8(received.recv().unwrap()).unwrap();
+        server.join().unwrap();
+        assert_eq!(response.status, Some(204));
+        assert!(wire.ends_with("name=post+owl&empty="));
+        assert!(
+            wire.to_ascii_lowercase()
+                .contains("content-type: application/x-www-form-urlencoded")
+        );
+    }
+
+    #[test]
+    fn request_body_over_twenty_mib_is_rejected_before_network_io() {
+        let mut request = script_request("http://127.0.0.1:1/unused".into());
+        request.method = "POST".into();
+        request.body_mode = BodyMode::Text;
+        request.body = "x".repeat(REQUEST_BODY_LIMIT + 1);
+        let error = tauri::async_runtime::block_on(perform(&Client::new(), &request)).unwrap_err();
+        assert!(error.to_string().contains("20 MiB"));
+    }
+
+    #[test]
+    fn response_body_is_truncated_at_twenty_mib_without_server_buffering() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_http_request(&mut stream);
+            let total = RESPONSE_LIMIT + 8192;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+            let chunk = [b'x'; 8192];
+            for _ in 0..total / chunk.len() {
+                if stream.write_all(&chunk).is_err() {
+                    return;
+                }
+            }
+            let remainder = total % chunk.len();
+            let _ = stream.write_all(&chunk[..remainder]);
+        });
+        let request = script_request(format!("http://{address}/large"));
+        let response = tauri::async_runtime::block_on(perform(&Client::new(), &request)).unwrap();
+        server.join().unwrap();
+        assert_eq!(response.body.len(), RESPONSE_LIMIT);
+        assert!(response.truncated);
+        assert!(response.size > RESPONSE_LIMIT as u64);
+    }
+
+    #[test]
+    fn script_response_view_truncates_unicode_on_a_character_boundary() {
+        let body = format!("{}é", "x".repeat(SCRIPT_RESPONSE_LIMIT - 1));
+        let response = ResponseData {
+            status: Some(200),
+            headers: vec![],
+            size: body.len() as u64,
+            body,
+            elapsed: 0,
+            truncated: false,
+            assertions: vec![],
+            logs: vec![],
+            error: None,
+        };
+        let view = script_response_view(&response);
+        assert_eq!(view.body.len(), SCRIPT_RESPONSE_LIMIT - 1);
+        assert!(view.truncated);
+        assert!(!response.truncated);
     }
 }

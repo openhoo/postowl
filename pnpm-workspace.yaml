@@ -2,4 +2,10 @@ packages:
   - .
 
 allowBuilds:
+  edgedriver: false
   esbuild: true
+  geckodriver: false
+
+overrides:
+  "@wdio/tauri-service>@wdio/native-utils": 2.5.0
+  "@wdio/native-core>@wdio/native-utils": 2.5.0

@@ -66,7 +66,7 @@ jobs:
     name: Linux verification
     needs: commitlint
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -100,7 +100,8 @@ jobs:
             librsvg2-dev \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
-            libxdo-dev
+            libxdo-dev \
+            xvfb
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
@@ -119,6 +120,15 @@ jobs:
 
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build native end-to-end binary
+        run: cargo build --manifest-path src-tauri/Cargo.toml --features e2e,tauri/custom-protocol
+
+      - name: Test native end-to-end workflows
+        env:
+          POSTOWL_DATA_DIR: ${{ runner.temp }}/postowl-e2e
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+        run: xvfb-run --auto-servernum pnpm test:e2e
 
       - name: Check version synchronization
         run: node scripts/sync-version.ts --check
