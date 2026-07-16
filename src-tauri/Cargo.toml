@@ -1,6 +1,6 @@
 [package]
 name = "postowl"
-version = "0.2.2"
+version = "0.3.0"
 description = "A fast, native REST workspace"
 authors = ["OpenHoo"]
 edition = "2024"

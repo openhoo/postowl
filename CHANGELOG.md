@@ -1,5 +1,11 @@
 # postowl Changelog
 
+## 0.3.0 (2026-07-16)
+
+### Features
+
+- **ui:** migrate desktop to SolidJS (5cb6630)
+
 ## 0.2.2 (2026-07-16)
 
 ### Bug Fixes
