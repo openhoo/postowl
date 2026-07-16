@@ -30,7 +30,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -41,5 +41,13 @@
     "category": "DeveloperTool",
     "shortDescription": "A fast, native REST workspace",
     "longDescription": "Build, organize, automate, and inspect HTTP requests without a heavyweight runtime."
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU1ODNDQUY4QzJDOTA5MUEKUldRYUNjbkMrTXFENWYzck93dytjSUZoNWpXVUlLQUhTcjdhWldSTXJXM1d4WnA3U2wrNnVYR2gK",
+      "endpoints": [
+        "https://github.com/openhoo/postowl/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

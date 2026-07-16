@@ -8,6 +8,7 @@ import EnvironmentEditor, { type EnvironmentValidationErrors } from './lib/compo
 import RequestEditor, { type RequestEditorValidationController } from './lib/components/RequestEditor';
 import ResponsePanel from './lib/components/ResponsePanel';
 import Sidebar from './lib/components/Sidebar';
+import UpdateNotice from './lib/components/UpdateNotice';
 import MethodTag from './lib/components/ui/MethodTag';
 import { validateRequestDraft, type RequestValidationErrors } from './lib/validation';
 
@@ -142,6 +143,13 @@ export default function App() {
     });
     queueMicrotask(() => confirmationActionLabel?.closest('button')?.focus());
     return promise;
+  }
+  async function confirmUpdateRestart() {
+    if (!dirty() && !environmentDirty()) return true;
+    return askConfirmation(
+      'Restarting now will discard unsaved request or environment changes.',
+      { title: 'Restart to update?', action: 'Restart' }
+    );
   }
 
   function answerConfirmation(confirmed: boolean) {
@@ -694,6 +702,8 @@ export default function App() {
           )}</Show>
         </Show>
       </Show>
+
+      <UpdateNotice confirmRestart={confirmUpdateRestart} />
 
       <Show when={toast()} keyed>{(currentToast) => <div class="toast fixed right-4 bottom-4 z-20 flex max-w-md items-center gap-2 rounded-sm border border-hairline bg-raised px-4 py-3 text-graphite shadow-float animate-[toast-in_180ms_var(--ease-out)] motion-reduce:animate-none max-[36rem]:right-2 max-[36rem]:bottom-2 max-[36rem]:left-2 max-[36rem]:max-w-none" classList={{ bad: currentToast.tone === 'bad' }} role={currentToast.tone === 'bad' ? 'alert' : 'status'} aria-live={currentToast.tone === 'bad' ? 'assertive' : 'polite'}><span class="size-[0.4375rem] rounded-full" classList={{ 'bg-signal': currentToast.tone === 'good', 'bg-coral': currentToast.tone === 'bad' }} />{currentToast.text}</div>}</Show>
       <Show when={confirmation()} keyed>

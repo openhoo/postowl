@@ -3,5 +3,11 @@
   "identifier": "desktop",
   "description": "PostOwl desktop capabilities",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "process:allow-restart",
+    "updater:default"
+  ]
 }
