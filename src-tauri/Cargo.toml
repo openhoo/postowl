@@ -1,0 +1,35 @@
+[package]
+name = "postowl"
+version = "0.1.0"
+description = "A fast, native REST workspace"
+authors = ["OpenHoo"]
+edition = "2024"
+license = "MIT"
+rust-version = "1.88"
+
+[lib]
+name = "postowl_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = "0.22"
+http = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2", "charset", "json", "gzip", "brotli", "deflate"] }
+rquickjs = { version = "0.12.1", default-features = false, features = ["std"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = true
