@@ -1,5 +1,11 @@
 # postowl Changelog
 
+## 0.4.1 (2026-07-16)
+
+### Bug Fixes
+
+- **security:** patch test dependency (f1ac574)
+
 ## 0.4.0 (2026-07-16)
 
 ### Features
