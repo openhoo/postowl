@@ -456,8 +456,7 @@ fn validate_history(entry: &mut HistoryEntry) -> AppResult<()> {
     Ok(())
 }
 
-pub fn add_history(conn: &Connection, entry: &HistoryEntry) -> AppResult<()> {
-    let mut entry = entry.clone();
+pub fn add_history(conn: &Connection, mut entry: HistoryEntry) -> AppResult<()> {
     validate_history(&mut entry)?;
     conn.execute(
         "INSERT INTO history(id,data,executed_at) VALUES(?1,?2,?3)",
@@ -550,29 +549,33 @@ pub fn validate_native(value: NativeWorkspace) -> AppResult<Workspace> {
 
 fn insert_all(tx: &Transaction<'_>, workspace: &Workspace) -> AppResult<()> {
     tx.execute_batch("DELETE FROM history; DELETE FROM requests; DELETE FROM collections; DELETE FROM environments;")?;
-    for value in &workspace.collections {
-        tx.execute(
-            "INSERT INTO collections(id,data,updated_at) VALUES(?1,?2,?3)",
-            params![value.id, encode(value)?, value.updated_at],
-        )?;
+    {
+        let mut statement =
+            tx.prepare("INSERT INTO collections(id,data,updated_at) VALUES(?1,?2,?3)")?;
+        for value in &workspace.collections {
+            statement.execute(params![value.id, encode(value)?, value.updated_at])?;
+        }
     }
-    for value in &workspace.requests {
-        tx.execute(
-            "INSERT INTO requests(id,data,updated_at) VALUES(?1,?2,?3)",
-            params![value.id, encode(value)?, value.updated_at],
-        )?;
+    {
+        let mut statement =
+            tx.prepare("INSERT INTO requests(id,data,updated_at) VALUES(?1,?2,?3)")?;
+        for value in &workspace.requests {
+            statement.execute(params![value.id, encode(value)?, value.updated_at])?;
+        }
     }
-    for value in &workspace.environments {
-        tx.execute(
-            "INSERT INTO environments(id,data,updated_at) VALUES(?1,?2,?3)",
-            params![value.id, encode(value)?, value.updated_at],
-        )?;
+    {
+        let mut statement =
+            tx.prepare("INSERT INTO environments(id,data,updated_at) VALUES(?1,?2,?3)")?;
+        for value in &workspace.environments {
+            statement.execute(params![value.id, encode(value)?, value.updated_at])?;
+        }
     }
-    for value in workspace.history.iter().take(HISTORY_LIMIT) {
-        tx.execute(
-            "INSERT INTO history(id,data,executed_at) VALUES(?1,?2,?3)",
-            params![value.id, encode(value)?, value.executed_at],
-        )?;
+    {
+        let mut statement =
+            tx.prepare("INSERT INTO history(id,data,executed_at) VALUES(?1,?2,?3)")?;
+        for value in workspace.history.iter().take(HISTORY_LIMIT) {
+            statement.execute(params![value.id, encode(value)?, value.executed_at])?;
+        }
     }
     Ok(())
 }
@@ -768,7 +771,7 @@ mod tests {
         let saved_request =
             save_request(&conn, request_value("request", Some("collection"))).unwrap();
         let saved_environment = save_environment(&conn, environment_value("environment")).unwrap();
-        add_history(&conn, &history("history", 10)).unwrap();
+        add_history(&conn, history("history", 10)).unwrap();
 
         assert!(saved_collection.created_at > 0);
         assert!(saved_request.updated_at > 0);
@@ -847,11 +850,7 @@ mod tests {
     fn history_is_newest_first_and_capped() {
         let conn = open(Path::new(":memory:")).unwrap();
         for index in 0..HISTORY_LIMIT + 7 {
-            add_history(
-                &conn,
-                &history(&format!("history-{index:04}"), index as i64),
-            )
-            .unwrap();
+            add_history(&conn, history(&format!("history-{index:04}"), index as i64)).unwrap();
         }
         let entries = workspace(&conn).unwrap().history;
         assert_eq!(entries.len(), HISTORY_LIMIT);
@@ -867,7 +866,7 @@ mod tests {
             save_collection(&conn, collection("persisted")).unwrap();
             save_request(&conn, request_value("request", Some("persisted"))).unwrap();
             save_environment(&conn, environment_value("environment")).unwrap();
-            add_history(&conn, &history("history", 1)).unwrap();
+            add_history(&conn, history("history", 1)).unwrap();
         }
         let reopened = open(&path).unwrap();
         let snapshot = workspace(&reopened).unwrap();
@@ -891,7 +890,7 @@ mod tests {
             save_collection(&source, collection("collection")).unwrap();
             save_request(&source, request_value("request", Some("collection"))).unwrap();
             save_environment(&source, environment_value("environment")).unwrap();
-            add_history(&source, &history("history", 42)).unwrap();
+            add_history(&source, history("history", 42)).unwrap();
             export(&source, &export_path).unwrap();
         }
         let encoded: NativeWorkspace =

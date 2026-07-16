@@ -25,7 +25,8 @@ const MAX_ENVIRONMENT_ROWS = 10_000;
 const MAX_NAME_BYTES = 1_024;
 const MAX_VALUE_BYTES = 1_048_576;
 const MAX_ID_BYTES = 256;
-const byteLength = (value: string) => new TextEncoder().encode(value).length;
+const textEncoder = new TextEncoder();
+const byteLength = (value: string) => textEncoder.encode(value).length;
 const validId = (value: string) => value === value.trim() && byteLength(value) >= 1 && byteLength(value) <= MAX_ID_BYTES;
 
 const emptyResponse = (message: string): ResponseData => ({

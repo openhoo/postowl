@@ -285,6 +285,13 @@ fn encode_bytes(bytes: &[u8]) -> (String, String) {
     }
 }
 
+fn encode_body(bytes: Vec<u8>) -> (String, String) {
+    match String::from_utf8(bytes) {
+        Ok(text) => (text, UTF8_ENCODING.into()),
+        Err(error) => (BASE64.encode(error.as_bytes()), BASE64_ENCODING.into()),
+    }
+}
+
 fn append_ancillary_warning(response: &mut ResponseData, name: &str, message: String) {
     response.assertions.push(AssertionResult {
         name: name.into(),
@@ -413,14 +420,15 @@ async fn perform(client: &Client, request: &ScriptRequest) -> AppResult<Response
                     "response body read failed after {} captured bytes: {error}",
                     bytes.len()
                 );
-                let (body, body_encoding) = encode_bytes(&bytes);
+                let size = bytes.len() as u64;
+                let (body, body_encoding) = encode_body(bytes);
                 return Ok(ResponseData {
                     status: Some(status),
                     headers,
                     body,
                     body_encoding,
                     elapsed: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-                    size: bytes.len() as u64,
+                    size,
                     total_size,
                     truncated,
                     assertions: vec![],
@@ -430,14 +438,15 @@ async fn perform(client: &Client, request: &ScriptRequest) -> AppResult<Response
             }
         }
     }
-    let (body, body_encoding) = encode_bytes(&bytes);
+    let size = bytes.len() as u64;
+    let (body, body_encoding) = encode_body(bytes);
     Ok(ResponseData {
         status: Some(status),
         headers,
         body,
         body_encoding,
         elapsed: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-        size: bytes.len() as u64,
+        size,
         total_size,
         truncated,
         assertions: vec![],
@@ -567,7 +576,7 @@ pub async fn execute_request(
         executed_at: db::now_ms(),
         response: response.clone(),
     };
-    let history_result = lock_db(&state).and_then(|conn| db::add_history(&conn, &history));
+    let history_result = lock_db(&state).and_then(|conn| db::add_history(&conn, history));
     if let Err(error) = history_result {
         append_ancillary_warning(
             &mut response,

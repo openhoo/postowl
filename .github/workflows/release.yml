@@ -209,10 +209,39 @@ jobs:
           RELEASE_TAG: ${{ needs.release.outputs.tag }}
         run: |
           set -euo pipefail
-          checksum_file="${RELEASE_TAG}-${{ matrix.label }}-SHA256SUMS.txt"
-          bundle_root="src-tauri/target/release/bundle"
-          for file in "$bundle_root"/*/*; do
-            test ! -f "$file" || printf '%s\0' "$file"
-          done | sort -z | xargs -0 sha256sum > "$checksum_file"
+          checksum_file="$PWD/${RELEASE_TAG}-${{ matrix.label }}-SHA256SUMS.txt"
+          assets_dir="$(mktemp -d)"
+          trap 'rm -rf "$assets_dir"' EXIT
+
+          case "${{ matrix.label }}" in
+            linux) asset_patterns=('*.AppImage' '*.deb' '*.rpm') ;;
+            windows) asset_patterns=('*.exe' '*.msi') ;;
+            macos) asset_patterns=('*.dmg') ;;
+            *) echo "Unsupported release platform: ${{ matrix.label }}" >&2; exit 1 ;;
+          esac
+
+          download_args=()
+          for pattern in "${asset_patterns[@]}"; do
+            download_args+=(--pattern "$pattern")
+          done
+          gh release download "$RELEASE_TAG" --dir "$assets_dir" "${download_args[@]}"
+
+          (
+            cd "$assets_dir"
+            export LC_ALL=C
+            shopt -s nullglob
+            assets=(*)
+            ((${#assets[@]} > 0)) || {
+              echo "No published installer assets found for ${{ matrix.label }}" >&2
+              exit 1
+            }
+            for asset in "${assets[@]}"; do
+              if command -v sha256sum >/dev/null 2>&1; then
+                sha256sum -- "$asset"
+              else
+                shasum -a 256 -- "$asset"
+              fi
+            done
+          ) > "$checksum_file"
           test -s "$checksum_file"
           gh release upload "$RELEASE_TAG" "$checksum_file" --clobber

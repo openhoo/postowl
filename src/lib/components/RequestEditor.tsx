@@ -7,6 +7,8 @@ import FieldError from './ui/FieldError';
 import SegmentedControl from './ui/SegmentedControl';
 import Tabs from './ui/Tabs';
 
+const BODY_MODE_ITEMS = BODY_MODES.map((mode) => ({ value: mode, label: mode }));
+
 export interface RequestEditorValidationController {
   focusFirstInvalid: () => boolean;
 }
@@ -237,7 +239,7 @@ export default function RequestEditor(props: RequestEditorProps) {
         </Show>
         <Show when={tab() === 'body'}>
           <SegmentedControl
-            items={BODY_MODES.map((mode) => ({ value: mode, label: mode }))}
+            items={BODY_MODE_ITEMS}
             value={props.draft.bodyMode}
             onChange={(mode) => updateDraft('bodyMode', mode)}
             ariaLabel="Body mode"

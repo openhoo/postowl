@@ -243,7 +243,7 @@ export default function ResponsePanel(props: ResponsePanelProps) {
       ? bodyPreview()?.body ?? props.response?.body ?? ''
       : props.response?.body ?? ''
   ));
-  const passedCount = createMemo(() => props.response?.assertions.filter((item) => item.passed).length ?? 0);
+  const passedCount = createMemo(() => props.response?.assertions.reduce((count, item) => count + (item.passed ? 1 : 0), 0) ?? 0);
 
   return (
     <section
