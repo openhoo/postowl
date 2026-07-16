@@ -1,5 +1,11 @@
 # postowl Changelog
 
+## 0.5.1 (2026-07-16)
+
+### Bug Fixes
+
+- **ui:** repair actions and confirmations (98cf45b)
+
 ## 0.5.0 (2026-07-16)
 
 ### Features
