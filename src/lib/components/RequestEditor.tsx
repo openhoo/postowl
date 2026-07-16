@@ -2,8 +2,10 @@ import { For, Show, createSignal, onCleanup, onMount } from 'solid-js';
 import type { Collection, RequestDraft } from '../types';
 import type { RequestValidationErrors } from '../validation';
 import { BODY_MODES, METHODS } from '../utils';
-import ActionButton from './ActionButton';
 import KeyValueEditor from './KeyValueEditor';
+import FieldError from './ui/FieldError';
+import SegmentedControl from './ui/SegmentedControl';
+import Tabs from './ui/Tabs';
 
 export interface RequestEditorValidationController {
   focusFirstInvalid: () => boolean;
@@ -27,6 +29,14 @@ export interface RequestEditorProps {
 type RequestTab = 'query' | 'headers' | 'body' | 'scripts';
 type ScriptTab = 'pre' | 'post';
 const REQUEST_TABS = ['query', 'headers', 'body', 'scripts'] as const;
+const SCRIPT_STAGES = [
+  { value: 'pre', label: 'Before request' },
+  { value: 'post', label: 'After response' }
+] as const;
+const CONTROL_CLASS = 'min-h-control-default rounded-sm border border-hairline bg-raised px-2 py-1 hover:border-signal-line focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-48';
+const ACTION_CLASS = 'min-h-control-default whitespace-nowrap rounded-sm border border-hairline bg-raised px-3 py-1 text-[0.8125rem] font-[650] text-naval transition-[border-color,background-color,color,box-shadow,transform] duration-[140ms] ease-out hover:not-disabled:border-signal-line hover:not-disabled:bg-signal-soft hover:not-disabled:text-graphite active:not-disabled:translate-y-px focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-48';
+const PRIMARY_ACTION_CLASS = 'border-naval bg-naval font-[750] text-raised shadow-[inset_0_0.125rem_var(--color-signal-bright)] hover:not-disabled:border-graphite hover:not-disabled:bg-graphite hover:not-disabled:text-raised';
+const CODE_EDITOR_CLASS = 'h-[calc(100%_-_3rem)] min-h-56 w-full resize-none rounded-sm border border-border-strong bg-reader p-4 font-data text-[0.8125rem] leading-[1.65] text-graphite [tab-size:2] placeholder:text-ink-faint hover:border-signal-line focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] aria-invalid:border-coral-line disabled:cursor-not-allowed disabled:opacity-48';
 
 export default function RequestEditor(props: RequestEditorProps) {
   const [tab, setTab] = createSignal<RequestTab>('query');
@@ -66,37 +76,20 @@ export default function RequestEditor(props: RequestEditorProps) {
   const updateDraft = <K extends keyof RequestDraft>(key: K, value: RequestDraft[K]) => {
     props.onDraftChange({ ...props.draft, [key]: value });
   };
-  const moveTabFocus = (event: KeyboardEvent & { currentTarget: HTMLButtonElement }, current: RequestTab) => {
-    const currentIndex = REQUEST_TABS.indexOf(current);
-    const nextIndex = event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? REQUEST_TABS.length - 1
-        : event.key === 'ArrowLeft'
-          ? (currentIndex - 1 + REQUEST_TABS.length) % REQUEST_TABS.length
-          : event.key === 'ArrowRight'
-            ? (currentIndex + 1) % REQUEST_TABS.length
-            : currentIndex;
-    if (nextIndex === currentIndex && !['Home', 'End'].includes(event.key)) return;
-    const tabButtons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-    event.preventDefault();
-    setTab(REQUEST_TABS[nextIndex]);
-    queueMicrotask(() => tabButtons?.[nextIndex]?.focus());
-  };
 
 
   return (
-    <section ref={editorElement} class="request-editor" aria-label="Request editor" aria-busy={props.busy}>
-      <header class="editor-titlebar">
-        <div class="request-identity">
-          <span class="eyebrow request-state" classList={{ dirty: props.dirty }}>
-            <span class="state-dot" aria-hidden="true" />
+    <section ref={editorElement} class="request-editor grid min-h-0 min-w-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] overflow-hidden bg-panel @max-[50rem]:border-b @max-[50rem]:border-border-strong" aria-label="Request editor" aria-busy={props.busy}>
+      <header class="editor-titlebar flex min-h-19 min-w-0 items-center gap-4 border-b border-hairline bg-raised px-4 py-3 max-[68rem]:flex-wrap max-[36rem]:min-h-0 max-[36rem]:flex-col max-[36rem]:items-stretch max-[36rem]:gap-2 max-[36rem]:p-2">
+        <div class="request-identity min-w-36 flex-1 max-[68rem]:basis-52 max-[36rem]:w-full max-[36rem]:min-w-0 max-[36rem]:basis-auto">
+          <span class="eyebrow request-state mb-1 flex items-center gap-1.5 font-data text-[0.6875rem] leading-none font-bold tracking-[0.04em] text-ink-muted" classList={{ dirty: props.dirty, 'text-coral-ink': props.dirty }}>
+            <span class="state-dot size-1.75 rounded-full" classList={{ 'bg-signal': !props.dirty, 'bg-coral shadow-[0_0_0_0.1875rem_var(--color-coral-soft)]': props.dirty }} aria-hidden="true" />
             {props.dirty ? 'Unsaved changes' : 'Saved request'}
           </span>
-          <div class="field-control title-control">
+          <div class="field-control title-control grid min-w-0 content-start">
             <input
               id="request-name"
-              class="title-input"
+              class={`title-input w-full ${CONTROL_CLASS} aria-invalid:border-coral-line`}
               value={props.draft.name}
               onInput={(event) => updateDraft('name', event.currentTarget.value)}
               aria-label="Request name"
@@ -104,17 +97,13 @@ export default function RequestEditor(props: RequestEditorProps) {
               aria-describedby={props.validationErrors?.name ? 'request-name-error' : undefined}
               disabled={props.busy}
             />
-            <Show when={props.validationErrors?.name}>
-              {(message) => <span id="request-name-error" class="field-error" role="alert">{message()}</span>}
-            </Show>
+            <FieldError id="request-name-error" message={props.validationErrors?.name} />
           </div>
-          <Show when={props.validationErrors?.summary}>
-            {(message) => <span class="field-error" role="alert">{message()}</span>}
-          </Show>
+          <FieldError message={props.validationErrors?.summary} />
         </div>
-        <label class="compact-field">
+        <label class="flex shrink-0 items-center gap-2 whitespace-nowrap text-[0.6875rem] font-semibold text-ink-muted">
           <span>Collection</span>
-          <select
+          <select class={`w-38 min-w-0 ${CONTROL_CLASS}`}
             value={props.draft.collectionId ?? ''}
             onChange={(event) => updateDraft('collectionId', event.currentTarget.value || null)}
             aria-label="Collection"
@@ -126,23 +115,37 @@ export default function RequestEditor(props: RequestEditorProps) {
             </For>
           </select>
         </label>
-        <div class="toolbar-actions">
-          <ActionButton onClick={props.onDelete} tone="danger" disabled={props.busy}>Delete</ActionButton>
+        <div class="toolbar-actions flex items-center gap-2 max-[36rem]:w-full max-[36rem]:flex-wrap max-[36rem]:gap-1 [&_.action]:max-[36rem]:min-w-0 [&_.action]:max-[36rem]:flex-[1_1_auto]">
           <button
             type="button"
-            class="action"
+            class={`action danger border-transparent bg-transparent text-coral-ink ${ACTION_CLASS} hover:not-disabled:border-coral-line hover:not-disabled:bg-coral-soft hover:not-disabled:text-coral-ink`}
+            onClick={props.onDelete}
+            disabled={props.busy}
+          >
+            Delete
+          </button>
+          <button
+            type="button"
+            class={`action ${ACTION_CLASS}`}
             onClick={props.onSave}
             disabled={props.busy || !props.dirty}
             aria-keyshortcuts="Control+S Meta+S"
           >
-            {props.saving ? 'Saving…' : props.dirty ? 'Save' : 'Saved'} <kbd>Ctrl/Command+S</kbd>
+            {props.saving ? 'Saving…' : props.dirty ? 'Save' : 'Saved'} <kbd class="ml-1 font-data text-[0.6875rem] leading-none font-[650] opacity-72">Ctrl/Command+S</kbd>
           </button>
         </div>
       </header>
 
-      <div class="request-line">
+      <div class="request-line grid grid-cols-[5.75rem_minmax(0,1fr)_auto] items-start gap-2 border-b border-hairline bg-canvas px-4 py-3 @max-response:grid-cols-[4.75rem_minmax(0,1fr)] @max-response:p-2 @max-response:[&_.action]:col-span-full">
         <select
-          class={`method method-${props.draft.method.toLowerCase()}`}
+          class={`method method-${props.draft.method.toLowerCase()} ${CONTROL_CLASS} font-data text-[0.8125rem] leading-none font-[750]`}
+          classList={{
+            'text-signal-ink': props.draft.method === 'GET',
+            'text-method-post': props.draft.method === 'POST',
+            'text-method-put': props.draft.method === 'PUT',
+            'text-method-patch': props.draft.method === 'PATCH',
+            'text-coral-ink': props.draft.method === 'DELETE'
+          }}
           value={props.draft.method}
           onChange={(event) => updateDraft('method', event.currentTarget.value)}
           aria-label="HTTP method"
@@ -150,10 +153,10 @@ export default function RequestEditor(props: RequestEditorProps) {
         >
           <For each={METHODS}>{(method) => <option value={method}>{method}</option>}</For>
         </select>
-        <div class="field-control url-control">
+        <div class="field-control url-control grid min-w-0 content-start">
           <input
             id="request-url"
-            class="url-input mono"
+            class={`url-input mono w-full min-w-0 font-data text-[0.8125rem] placeholder:text-ink-faint aria-invalid:border-coral-line ${CONTROL_CLASS}`}
             value={props.draft.url}
             onInput={(event) => updateDraft('url', event.currentTarget.value)}
             aria-label="Request URL"
@@ -162,45 +165,49 @@ export default function RequestEditor(props: RequestEditorProps) {
             placeholder="https://api.example.com/resource"
             spellcheck={false}
             disabled={props.busy}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Enter'
+                && !event.ctrlKey
+                && !event.metaKey
+                && !event.altKey
+                && !event.shiftKey
+                && !props.busy
+                && props.draft.url.trim()
+              ) {
+                event.preventDefault();
+                props.onSend();
+              }
+            }}
           />
-          <Show when={props.validationErrors?.url}>
-            {(message) => <span id="request-url-error" class="field-error" role="alert">{message()}</span>}
-          </Show>
+          <FieldError id="request-url-error" message={props.validationErrors?.url} />
         </div>
         <button
           type="button"
-          class="action primary"
+          class={`action primary ${ACTION_CLASS} ${PRIMARY_ACTION_CLASS}`}
           onClick={props.onSend}
           disabled={props.busy || !props.draft.url.trim()}
           aria-keyshortcuts="Control+Enter Meta+Enter"
         >
-          {props.sending ? 'Sending…' : 'Send'} <kbd>Ctrl/Command+Enter</kbd>
+          {props.sending ? 'Sending…' : 'Send'} <kbd class="ml-1 font-data text-[0.6875rem] leading-none font-[650] opacity-72">Ctrl/Command+Enter</kbd>
         </button>
       </div>
 
-      <nav class="tabs" aria-label="Request settings" role="tablist">
-        <For each={REQUEST_TABS}>
-          {(item) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab() === item}
-              id={`request-tab-${item}`}
-              aria-controls="request-tabpanel"
-              tabindex={tab() === item ? 0 : -1}
-              classList={{ active: tab() === item }}
-              onClick={() => setTab(item)}
-              onKeyDown={(event) => moveTabFocus(event, item)}
-            >
-              {item}
-            </button>
-          )}
-        </For>
-      </nav>
+      <Tabs
+        items={REQUEST_TABS}
+        value={tab()}
+        onChange={setTab}
+        idPrefix="request"
+        panelId="request-tabpanel"
+        ariaLabel="Request settings"
+        class="flex min-h-11 items-end gap-6 border-b border-border-strong bg-raised px-4 max-[36rem]:grid max-[36rem]:min-h-control-default max-[36rem]:grid-cols-4 max-[36rem]:items-stretch max-[36rem]:gap-1 max-[36rem]:px-2"
+        buttonClass="hover:text-naval focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] max-[36rem]:h-control-default max-[36rem]:w-full max-[36rem]:min-w-0 max-[36rem]:text-xs"
+      />
 
-      <div class="editor-pane" id="request-tabpanel" role="tabpanel" aria-labelledby={`request-tab-${tab()}`}>
+      <div class="editor-pane min-h-0 overflow-auto bg-panel p-4 max-[36rem]:p-2" id="request-tabpanel" role="tabpanel" aria-labelledby={`request-tab-${tab()}`}>
         <Show when={tab() === 'query'}>
           <KeyValueEditor
+            fill
             rows={props.draft.query}
             kind="Query parameter"
             idPrefix="request-query"
@@ -214,6 +221,7 @@ export default function RequestEditor(props: RequestEditorProps) {
         </Show>
         <Show when={tab() === 'headers'}>
           <KeyValueEditor
+            fill
             rows={props.draft.headers}
             kind="Header"
             idPrefix="request-header"
@@ -226,29 +234,23 @@ export default function RequestEditor(props: RequestEditorProps) {
           />
         </Show>
         <Show when={tab() === 'body'}>
-          <div class="segmented" aria-label="Body mode" role="group">
-            <For each={BODY_MODES}>
-              {(mode) => (
-                <button
-                  type="button"
-                  aria-pressed={props.draft.bodyMode === mode}
-                  classList={{ active: props.draft.bodyMode === mode }}
-                  disabled={props.busy}
-                  onClick={() => updateDraft('bodyMode', mode)}
-                >
-                  {mode}
-                </button>
-              )}
-            </For>
-          </div>
+          <SegmentedControl
+            items={BODY_MODES.map((mode) => ({ value: mode, label: mode }))}
+            value={props.draft.bodyMode}
+            onChange={(mode) => updateDraft('bodyMode', mode)}
+            ariaLabel="Body mode"
+            disabled={props.busy}
+            class="mb-3 max-[36rem]:max-w-full max-[36rem]:flex-wrap max-[36rem]:gap-1"
+            buttonClass="hover:text-naval focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] disabled:opacity-48 max-[36rem]:min-w-0 max-[36rem]:flex-[1_1_auto]"
+          />
           <Show
             when={props.draft.bodyMode !== 'none'}
-            fallback={<div class="pane-empty"><strong>No request body</strong><span>Choose text, JSON, or form to attach a payload.</span></div>}
+            fallback={<div class="pane-empty grid min-h-48 place-content-center gap-2 rounded-md border border-dashed border-hairline text-center text-ink-muted"><strong>No request body</strong><span>Choose text, JSON, or form to attach a payload.</span></div>}
           >
-            <div class="field-control body-control">
+            <div class="field-control body-control grid h-[calc(100%_-_3rem)] min-h-56 min-w-0 content-start grid-rows-[minmax(14rem,1fr)_auto_auto]">
               <textarea
                 id="request-body"
-                class="code-editor"
+                class={`code-editor h-full ${CODE_EDITOR_CLASS}`}
                 value={props.draft.body}
                 onInput={(event) => updateDraft('body', event.currentTarget.value)}
                 aria-label="Request body"
@@ -258,27 +260,29 @@ export default function RequestEditor(props: RequestEditorProps) {
                 disabled={props.busy}
                 placeholder={props.draft.bodyMode === 'json' ? '{\n  "key": "value"\n}' : 'Request payload'}
               />
-              <Show when={props.validationErrors?.body}>
-                {(message) => <span id="request-body-error" class="field-error" role="alert">{message()}</span>}
-              </Show>
+              <FieldError id="request-body-error" message={props.validationErrors?.body} />
               <Show when={props.draft.bodyMode === 'form'}>
-                <p class="editor-help">Sent as raw URL-encoded text. Enter pairs such as <code>name=owl&amp;active=true</code>.</p>
+                <p class="editor-help mt-3 text-xs leading-6 text-ink-muted [&_code]:font-data [&_code]:text-coral-ink">Sent as raw URL-encoded text. Enter pairs such as <code>name=owl&amp;active=true</code>.</p>
               </Show>
             </div>
           </Show>
         </Show>
         <Show when={tab() === 'scripts'}>
-          <div class="segmented" aria-label="Script stage" role="group">
-            <button type="button" aria-pressed={scriptTab() === 'pre'} classList={{ active: scriptTab() === 'pre' }} onClick={() => setScriptTab('pre')}>Before request</button>
-            <button type="button" aria-pressed={scriptTab() === 'post'} classList={{ active: scriptTab() === 'post' }} onClick={() => setScriptTab('post')}>After response</button>
-          </div>
+          <SegmentedControl
+            items={SCRIPT_STAGES}
+            value={scriptTab()}
+            onChange={setScriptTab}
+            ariaLabel="Script stage"
+            class="mb-3 max-[36rem]:max-w-full max-[36rem]:flex-wrap max-[36rem]:gap-1"
+            buttonClass="hover:text-naval focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] disabled:opacity-48 max-[36rem]:min-w-0 max-[36rem]:flex-[1_1_auto]"
+          />
           <Show
             when={scriptTab() === 'pre'}
             fallback={(
-              <div class="field-control">
+              <div class="field-control grid min-w-0 content-start">
                 <textarea
                   id="request-post-script"
-                  class="code-editor"
+                  class={`code-editor ${CODE_EDITOR_CLASS}`}
                   value={props.draft.postResponseScript}
                   onInput={(event) => updateDraft('postResponseScript', event.currentTarget.value)}
                   aria-label="Post-response script"
@@ -288,16 +292,14 @@ export default function RequestEditor(props: RequestEditorProps) {
                   disabled={props.busy}
                   placeholder="// Return { variables, assertions, logs }"
                 />
-                <Show when={props.validationErrors?.postResponseScript}>
-                  {(message) => <span id="request-post-script-error" class="field-error" role="alert">{message()}</span>}
-                </Show>
+                <FieldError id="request-post-script-error" message={props.validationErrors?.postResponseScript} />
               </div>
             )}
           >
-            <div class="field-control">
+            <div class="field-control grid min-w-0 content-start">
               <textarea
                 id="request-pre-script"
-                class="code-editor"
+                class={`code-editor ${CODE_EDITOR_CLASS}`}
                 value={props.draft.preRequestScript}
                 onInput={(event) => updateDraft('preRequestScript', event.currentTarget.value)}
                 aria-label="Pre-request script"
@@ -307,12 +309,10 @@ export default function RequestEditor(props: RequestEditorProps) {
                 disabled={props.busy}
                 placeholder="// Return { request, variables, assertions, logs }"
               />
-              <Show when={props.validationErrors?.preRequestScript}>
-                {(message) => <span id="request-pre-script-error" class="field-error" role="alert">{message()}</span>}
-              </Show>
+              <FieldError id="request-pre-script-error" message={props.validationErrors?.preRequestScript} />
             </div>
           </Show>
-          <p class="editor-help">Scripts export <code>main(context)</code> and return an object. Before request, return any of <code>request</code>, <code>variables</code>, <code>assertions</code>, or <code>logs</code>; after response, return <code>variables</code>, <code>assertions</code>, or <code>logs</code>.</p>
+          <p class="editor-help mt-3 text-xs leading-6 text-ink-muted [&_code]:font-data [&_code]:text-coral-ink">Scripts export <code>main(context)</code> and return an object. Before request, return any of <code>request</code>, <code>variables</code>, <code>assertions</code>, or <code>logs</code>; after response, return <code>variables</code>, <code>assertions</code>, or <code>logs</code>.</p>
         </Show>
       </div>
     </section>

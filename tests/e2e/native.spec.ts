@@ -320,7 +320,10 @@ describe('PostOwl native workspace', () => {
       };
     `);
 
-    await sendAndWaitFor('201');
+    await aria('Request URL').click();
+    await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    await expect(aria('Response telemetry')).toBeDisplayed();
+    await expect(aria('Response telemetry').$('strong')).toHaveText('201');
     const telemetry = aria('Response telemetry');
     await expect(telemetry).toHaveText(expect.stringMatching(/Elapsed\s*\d+\s+ms/));
     await expect(telemetry).toHaveText(expect.stringContaining('1/2'));
@@ -353,12 +356,13 @@ describe('PostOwl native workspace', () => {
     await expect(responseLogsTab).toHaveAttribute('aria-selected', 'true');
     await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })));
     await expect(responseBodyTab).toHaveAttribute('aria-selected', 'true');
-    const splitter = aria('Resize request and response panels');
-    await splitter.click();
-    await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })));
-    await expect(splitter).toHaveAttribute('aria-valuenow', '35');
-    await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true })));
-    await expect(splitter).toHaveAttribute('aria-valuenow', '55');
+    const stackLayout = await browser.execute(() => {
+      const request = document.querySelector('[aria-label="Request editor"]')?.getBoundingClientRect();
+      const response = document.querySelector('.response-panel')?.getBoundingClientRect();
+      if (!request || !response) throw new Error('Workbench panels are missing');
+      return { requestBottom: request.bottom, responseTop: response.top };
+    });
+    assertContract(stackLayout.responseTop >= stackLayout.requestBottom - 1, 'response panel is below request editor');
 
     const seededValue = await nativeInvoke('get_workspace');
     if (!isWorkspace(seededValue)) throw new Error('Native workspace response was invalid');

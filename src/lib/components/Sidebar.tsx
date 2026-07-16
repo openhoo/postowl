@@ -1,7 +1,7 @@
 import { For, Show, createMemo, createSignal } from 'solid-js';
 import type { Collection, HistoryEntry, RequestDraft } from '../types';
 import { formatTime } from '../utils';
-import ActionButton from './ActionButton';
+import MethodTag from './ui/MethodTag';
 
 type SidebarMode = 'workspace' | 'history' | 'environments';
 
@@ -17,6 +17,13 @@ interface RenameError {
 }
 
 const EMPTY_REQUESTS: RequestDraft[] = [];
+
+const FOCUS_CLASSES =
+  'focus-visible:z-[2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal focus-visible:ring-offset-2 focus-visible:ring-offset-raised';
+const ICON_BUTTON_CLASSES =
+  `relative grid size-control-compact shrink-0 place-items-center rounded-sm border border-hairline bg-raised p-0 text-ink-muted transition-[border-color,background-color,color,box-shadow,transform] duration-150 ease-out after:absolute after:-inset-1 after:content-[''] hover:border-signal-line hover:bg-signal-soft hover:text-graphite active:translate-y-px ${FOCUS_CLASSES}`;
+const DANGER_ICON_CLASSES =
+  'hover:border-coral-line hover:bg-coral-soft hover:text-coral-ink';
 
 const collectionDomId = (kind: 'requests' | 'name' | 'error', collectionId: string) =>
   `collection-${kind}-${encodeURIComponent(collectionId)}`;
@@ -154,10 +161,14 @@ export default function Sidebar(props: SidebarProps) {
   };
 
   return (
-    <aside class="sidebar">
-      <nav class="sidebar-tabs" aria-label="Workspace navigation">
+    <aside class="sidebar grid min-h-0 min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] border-r border-border-strong bg-panel max-[36rem]:border-r-0 max-[36rem]:border-b">
+      <nav
+        class="sidebar-tabs grid grid-cols-2 gap-1 border-b border-hairline bg-raised p-2 max-[36rem]:p-1"
+        aria-label="Workspace navigation"
+      >
         <button
           type="button"
+          class={`min-h-control-default rounded-sm border-0 bg-transparent p-2 text-[0.8125rem] font-semibold text-ink-muted hover:bg-naval-soft hover:text-naval aria-[current=page]:bg-naval aria-[current=page]:text-raised ${FOCUS_CLASSES}`}
           aria-current={props.mode === 'workspace' ? 'page' : undefined}
           classList={{ active: props.mode === 'workspace' }}
           onClick={() => props.onMode('workspace')}
@@ -166,6 +177,7 @@ export default function Sidebar(props: SidebarProps) {
         </button>
         <button
           type="button"
+          class={`min-h-control-default rounded-sm border-0 bg-transparent p-2 text-[0.8125rem] font-semibold text-ink-muted hover:bg-naval-soft hover:text-naval aria-[current=page]:bg-naval aria-[current=page]:text-raised ${FOCUS_CLASSES}`}
           aria-current={props.mode === 'history' ? 'page' : undefined}
           classList={{ active: props.mode === 'history' }}
           onClick={() => props.onMode('history')}
@@ -178,13 +190,19 @@ export default function Sidebar(props: SidebarProps) {
         when={props.mode === 'history'}
         fallback={
           <>
-            <div class="sidebar-section-head">
-              <span>COLLECTIONS</span>
-              <ActionButton onClick={props.onNewCollection} title="New collection" ariaLabel="New collection">
+            <div class="sidebar-section-head flex min-h-11 items-center justify-between border-b border-hairline px-3 py-2 font-data text-[0.6875rem] leading-none font-bold tracking-[0.07em] text-ink-muted before:mr-2 before:h-0.5 before:w-4 before:bg-signal before:content-[''] max-[36rem]:min-h-control-default max-[36rem]:py-1">
+              <span class="mr-auto">COLLECTIONS</span>
+              <button
+                type="button"
+                class={`action relative grid size-control-compact place-items-center rounded-sm border border-hairline bg-raised p-0 text-[0.8125rem] font-semibold text-naval transition-[border-color,background-color,color,box-shadow,transform] duration-150 ease-out hover:border-signal-line hover:bg-signal-soft hover:text-graphite active:translate-y-px ${FOCUS_CLASSES}`}
+                onClick={props.onNewCollection}
+                title="New collection"
+                aria-label="New collection"
+              >
                 +
-              </ActionButton>
+              </button>
             </div>
-            <div class="tree-scroll">
+            <div class="tree-scroll min-h-0 overflow-auto">
               <For each={props.collections}>
                 {(collection) => {
                   const requestPanelId = collectionDomId('requests', collection.id);
@@ -192,10 +210,10 @@ export default function Sidebar(props: SidebarProps) {
                   const renameErrorId = collectionDomId('error', collection.id);
 
                   return (
-                    <section class="collection-node">
-                      <div class="collection-row">
+                    <section class="collection-node border-b border-hairline">
+                      <div class="collection-row flex min-h-10.5 items-center gap-1 px-2 py-1 max-[36rem]:min-h-control-default">
                         <button
-                          class="disclosure"
+                          class={`disclosure group relative grid size-control-compact shrink-0 place-items-center border-0 bg-transparent p-0 text-ink-muted after:absolute after:-inset-1 after:content-[''] ${FOCUS_CLASSES}`}
                           type="button"
                           classList={{ collapsed: !isExpanded(collection.id) }}
                           aria-label={`${isExpanded(collection.id) ? 'Collapse' : 'Expand'} ${collection.name}`}
@@ -208,9 +226,16 @@ export default function Sidebar(props: SidebarProps) {
                             }))
                           }
                         >
-                          <span aria-hidden="true">⌄</span>
+                          <span
+                            class="transition-transform duration-150 ease-out"
+                            classList={{ '-rotate-90': !isExpanded(collection.id) }}
+                            aria-hidden="true"
+                          >
+                            ⌄
+                          </span>
                         </button>
                         <input
+                          class={`min-h-control-compact min-w-0 flex-1 rounded-sm border border-transparent bg-transparent p-1 font-bold hover:border-hairline aria-[invalid=true]:border-coral-line ${FOCUS_CLASSES}`}
                           id={nameInputId}
                           value={renameValue(collection)}
                           aria-label={`Collection name for ${collection.name}`}
@@ -232,13 +257,13 @@ export default function Sidebar(props: SidebarProps) {
                           }}
                         />
                         <span
-                          class="collection-count"
+                          class="collection-count grid h-5.5 min-w-5.5 place-items-center rounded-full border border-hairline font-data text-[0.625rem] leading-none font-bold text-ink-muted"
                           aria-label={`${requestsInCollection(collection.id).length} requests`}
                         >
                           {requestsInCollection(collection.id).length}
                         </span>
                         <button
-                          class="icon-button"
+                          class={`icon-button ${ICON_BUTTON_CLASSES}`}
                           title="New request"
                           aria-label={`New request in ${collection.name}`}
                           onClick={() => props.onNewRequest(collection.id)}
@@ -246,7 +271,7 @@ export default function Sidebar(props: SidebarProps) {
                           +
                         </button>
                         <button
-                          class="icon-button danger-icon"
+                          class={`icon-button danger-icon ${ICON_BUTTON_CLASSES} ${DANGER_ICON_CLASSES}`}
                           title="Delete collection"
                           aria-label={`Delete collection ${collection.name}`}
                           onClick={() => props.onDeleteCollection(collection)}
@@ -256,17 +281,25 @@ export default function Sidebar(props: SidebarProps) {
                       </div>
                       <Show when={renameError(collection)}>
                         {(message) => (
-                          <span id={renameErrorId} class="collection-rename-error" role="alert">
+                          <span
+                            id={renameErrorId}
+                            class="collection-rename-error mx-2 mb-2 block pl-11 text-[0.6875rem] leading-[1.4] text-coral-ink"
+                            role="alert"
+                          >
                             {message()}
                           </span>
                         )}
                       </Show>
-                      <div id={requestPanelId} class="request-tree" hidden={!isExpanded(collection.id)}>
+                      <div
+                        id={requestPanelId}
+                        class="request-tree pb-2 pr-2 pl-5"
+                        hidden={!isExpanded(collection.id)}
+                      >
                         <For
                           each={requestsInCollection(collection.id)}
                           fallback={
                             <button
-                              class="add-first"
+                              class={`add-first relative border-0 bg-transparent p-2 text-left text-xs text-ink-muted after:absolute after:-inset-1 after:content-[''] hover:text-signal-ink ${FOCUS_CLASSES}`}
                               aria-label={`Add first request to ${collection.name}`}
                               onClick={() => props.onNewRequest(collection.id)}
                             >
@@ -276,21 +309,25 @@ export default function Sidebar(props: SidebarProps) {
                         >
                           {(request) => (
                             <div
-                              class="tree-request"
-                              classList={{ active: request.id === props.selectedRequestId }}
+                              class="tree-request group relative flex min-h-9.5 min-w-0 rounded-sm hover:bg-naval-soft"
+                              classList={{
+                                active: request.id === props.selectedRequestId,
+                                'bg-signal-soft': request.id === props.selectedRequestId,
+                                '[box-shadow:inset_3px_0_var(--color-signal)]':
+                                  request.id === props.selectedRequestId
+                              }}
                             >
                               <button
                                 aria-label={`${request.name} in ${collection.name}`}
                                 aria-current={request.id === props.selectedRequestId ? 'page' : undefined}
+                                class={`flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent px-2 py-2 text-left text-ink-muted group-[.active]:font-bold group-[.active]:text-graphite ${FOCUS_CLASSES}`}
                                 onClick={() => props.onRequest(request.id)}
                               >
-                                <span class={`method-tag tree-method method-${request.method.toLowerCase()}`}>
-                                  {request.method}
-                                </span>
-                                <span class="request-name">{request.name}</span>
+                                <MethodTag method={request.method} tree />
+                                <span class="request-name truncate">{request.name}</span>
                               </button>
                               <button
-                                class="icon-button danger-icon"
+                                class={`icon-button danger-icon opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 ${ICON_BUTTON_CLASSES} ${DANGER_ICON_CLASSES}`}
                                 aria-label={`Delete ${request.name} from ${collection.name}`}
                                 title="Delete request"
                                 onClick={() => props.onDeleteRequest(request)}
@@ -306,18 +343,18 @@ export default function Sidebar(props: SidebarProps) {
                 }}
               </For>
 
-              <section class="collection-node unfiled">
-                <div class="collection-row">
-                  <span class="disclosure" aria-hidden="true">—</span>
-                  <span class="collection-label">Unfiled</span>
+              <section class="collection-node unfiled border-b border-hairline bg-canvas">
+                <div class="collection-row flex min-h-10.5 items-center gap-1 px-2 py-1 max-[36rem]:min-h-control-default">
+                  <span class="disclosure grid size-control-compact shrink-0 place-items-center text-ink-muted" aria-hidden="true">—</span>
+                  <span class="collection-label flex-1 font-bold text-naval">Unfiled</span>
                   <span
-                    class="collection-count"
+                    class="collection-count grid h-5.5 min-w-5.5 place-items-center rounded-full border border-hairline font-data text-[0.625rem] leading-none font-bold text-ink-muted"
                     aria-label={`${groupedRequests().unfiled.length} unfiled requests`}
                   >
                     {groupedRequests().unfiled.length}
                   </span>
                   <button
-                    class="icon-button"
+                    class={`icon-button ${ICON_BUTTON_CLASSES}`}
                     title="New unfiled request"
                     aria-label="New unfiled request"
                     onClick={() => props.onNewRequest(null)}
@@ -325,12 +362,12 @@ export default function Sidebar(props: SidebarProps) {
                     +
                   </button>
                 </div>
-                <div class="request-tree">
+                <div class="request-tree pb-2 pr-2 pl-5">
                   <For
                     each={groupedRequests().unfiled}
                     fallback={
                       <button
-                        class="add-first"
+                        class={`add-first relative border-0 bg-transparent p-2 text-left text-xs text-ink-muted after:absolute after:-inset-1 after:content-[''] hover:text-signal-ink ${FOCUS_CLASSES}`}
                         aria-label="Create first unfiled request"
                         onClick={() => props.onNewRequest(null)}
                       >
@@ -340,21 +377,25 @@ export default function Sidebar(props: SidebarProps) {
                   >
                     {(request) => (
                       <div
-                        class="tree-request"
-                        classList={{ active: request.id === props.selectedRequestId }}
+                        class="tree-request group relative flex min-h-9.5 min-w-0 rounded-sm hover:bg-naval-soft"
+                        classList={{
+                          active: request.id === props.selectedRequestId,
+                          'bg-signal-soft': request.id === props.selectedRequestId,
+                          '[box-shadow:inset_3px_0_var(--color-signal)]':
+                            request.id === props.selectedRequestId
+                        }}
                       >
                         <button
                           aria-label={`${request.name}, unfiled`}
                           aria-current={request.id === props.selectedRequestId ? 'page' : undefined}
+                          class={`flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent px-2 py-2 text-left text-ink-muted group-[.active]:font-bold group-[.active]:text-graphite ${FOCUS_CLASSES}`}
                           onClick={() => props.onRequest(request.id)}
                         >
-                          <span class={`method-tag tree-method method-${request.method.toLowerCase()}`}>
-                            {request.method}
-                          </span>
-                          <span class="request-name">{request.name}</span>
+                          <MethodTag method={request.method} tree />
+                          <span class="request-name truncate">{request.name}</span>
                         </button>
                         <button
-                          class="icon-button danger-icon"
+                          class={`icon-button danger-icon opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 ${ICON_BUTTON_CLASSES} ${DANGER_ICON_CLASSES}`}
                           aria-label={`Delete unfiled request ${request.name}`}
                           title="Delete request"
                           onClick={() => props.onDeleteRequest(request)}
@@ -370,18 +411,23 @@ export default function Sidebar(props: SidebarProps) {
           </>
         }
       >
-        <div class="sidebar-section-head">
-          <span>{props.history.length} RECORDS</span>
+        <div class="sidebar-section-head flex min-h-11 items-center justify-between border-b border-hairline px-3 py-2 font-data text-[0.6875rem] leading-none font-bold tracking-[0.07em] text-ink-muted before:mr-2 before:h-0.5 before:w-4 before:bg-signal before:content-[''] max-[36rem]:min-h-control-default max-[36rem]:py-1">
+          <span class="mr-auto">{props.history.length} RECORDS</span>
           <Show when={props.history.length > 0}>
-            <button onClick={props.onClearHistory}>Clear</button>
+            <button
+              class={`relative border-0 bg-transparent p-1 text-xs text-coral-ink after:absolute after:-inset-1 after:content-[''] hover:text-coral ${FOCUS_CLASSES}`}
+              onClick={props.onClearHistory}
+            >
+              Clear
+            </button>
           </Show>
         </div>
-        <div class="tree-scroll">
+        <div class="tree-scroll min-h-0 overflow-auto">
           <Show
             when={props.history.length > 0}
             fallback={
-              <div class="sidebar-empty">
-                <strong>No recorded flights</strong>
+              <div class="sidebar-empty flex flex-col items-start gap-2 px-4 py-6 text-[0.8125rem] leading-normal text-ink-muted">
+                <strong class="text-graphite">No recorded flights</strong>
                 <span>Completed requests appear here and persist across restarts.</span>
               </div>
             }
@@ -389,15 +435,15 @@ export default function Sidebar(props: SidebarProps) {
             <For each={props.history}>
               {(entry) => (
                 <button
-                  class="history-item"
+                  class={`history-item flex min-h-14 w-full items-center gap-3 border-0 border-b border-hairline bg-transparent p-3 text-left text-ink-muted hover:bg-naval-soft aria-[current=page]:bg-signal-soft aria-[current=page]:[box-shadow:inset_3px_0_var(--color-signal)] max-[36rem]:min-h-control-default max-[36rem]:py-2 ${FOCUS_CLASSES}`}
                   classList={{ active: entry.id === props.selectedHistoryId }}
                   aria-current={entry.id === props.selectedHistoryId ? 'page' : undefined}
                   onClick={() => props.onHistory(entry.id)}
                 >
-                  <span class={`method-tag method-${entry.method.toLowerCase()}`}>{entry.method}</span>
-                  <span class="history-copy">
-                    <strong>{entry.requestName}</strong>
-                    <small>
+                  <MethodTag method={entry.method} />
+                  <span class="history-copy min-w-0">
+                    <strong class="block truncate">{entry.requestName}</strong>
+                    <small class="mt-1 block truncate font-data text-[0.6875rem] leading-[1.2] text-ink-muted">
                       {entry.response.status ?? 'ERR'} · {formatTime(entry.executedAt)}
                     </small>
                   </span>

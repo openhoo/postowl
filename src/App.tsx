@@ -8,6 +8,7 @@ import EnvironmentEditor, { type EnvironmentValidationErrors } from './lib/compo
 import RequestEditor, { type RequestEditorValidationController } from './lib/components/RequestEditor';
 import ResponsePanel from './lib/components/ResponsePanel';
 import Sidebar from './lib/components/Sidebar';
+import MethodTag from './lib/components/ui/MethodTag';
 import { validateRequestDraft, type RequestValidationErrors } from './lib/validation';
 
 type Mode = 'workspace' | 'history' | 'environments';
@@ -49,7 +50,6 @@ export default function App() {
   const [deleting, setDeleting] = createSignal(false);
   const [requestValidationErrors, setRequestValidationErrors] = createSignal<RequestValidationErrors>({});
   const [toast, setToast] = createSignal<Toast | null>(null);
-  const [requestPaneWidth, setRequestPaneWidth] = createSignal(55);
   const [transferring, setTransferring] = createSignal(false);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   let requestValidationController: RequestEditorValidationController | undefined;
@@ -334,9 +334,8 @@ export default function App() {
       const requests = workspace()!.requests.filter((item) => item.id !== request.id);
       updateWorkspace((value) => ({ ...value, requests }));
       if (selectedRequestId() === request.id) {
-        const next = requests[0];
-        setSelectedRequestId(next?.id ?? null);
-        setDraft(next ? clone(next) : null);
+        setSelectedRequestId(null);
+        setDraft(null);
         setRequestValidationErrors({});
         setResponse(null);
       }
@@ -470,40 +469,6 @@ export default function App() {
     }
   }
 
-  function beginWorkbenchResize(event: PointerEvent & { currentTarget: HTMLButtonElement }) {
-    const handle = event.currentTarget;
-    const workbench = handle.parentElement;
-    if (!workbench) return;
-    const pointerId = event.pointerId;
-    const update = (clientX: number) => {
-      const bounds = workbench.getBoundingClientRect();
-      const next = ((clientX - bounds.left) / bounds.width) * 100;
-      setRequestPaneWidth(Math.min(70, Math.max(35, next)));
-    };
-    const move = (moveEvent: PointerEvent) => update(moveEvent.clientX);
-    const stop = () => {
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', stop);
-      handle.removeEventListener('pointercancel', stop);
-    };
-    handle.setPointerCapture(pointerId);
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', stop);
-    handle.addEventListener('pointercancel', stop);
-    update(event.clientX);
-  }
-
-  function resizeWorkbenchFromKeyboard(event: KeyboardEvent) {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', '0'].includes(event.key)) return;
-    event.preventDefault();
-    setRequestPaneWidth((current) => event.key === 'Home'
-      ? 35
-      : event.key === 'End'
-        ? 70
-        : event.key === '0'
-          ? 55
-          : Math.min(70, Math.max(35, current + (event.key === 'ArrowLeft' ? -2 : 2))));
-  }
 
   onMount(() => {
     document.title = 'PostOwl — REST flight recorder';
@@ -521,31 +486,38 @@ export default function App() {
   });
 
   return (
-    <div class="app-shell">
-      <header class="topbar">
-        <button class="brand" type="button" onClick={() => void changeMode('workspace')} aria-label="Open workspace">
-          <span class="brand-mark" aria-hidden="true"><i /><i /><i /></span>
-          <span><strong>PostOwl</strong><small>Request observatory</small></span>
+    <div class="app-shell grid h-full grid-rows-[4rem_minmax(0,1fr)] bg-canvas max-[54rem]:grid-rows-[auto_minmax(0,1fr)]">
+      <header class="topbar relative z-5 flex items-center justify-between gap-6 border-b border-border-strong bg-raised px-6 shadow-[0_1px_0_rgba(255,255,255,0.8)] after:absolute after:-bottom-px after:left-0 after:h-0.5 after:w-70 after:bg-signal after:content-[''] max-[68rem]:after:w-62 max-[54rem]:min-h-16 max-[54rem]:py-2 max-[44rem]:gap-2 max-[44rem]:px-3 max-[36rem]:grid max-[36rem]:min-h-0 max-[36rem]:grid-cols-[auto_minmax(0,1fr)] max-[36rem]:gap-2 max-[36rem]:px-3 max-[36rem]:py-2 max-[36rem]:after:w-full">
+        <button class="brand flex min-w-52 items-center gap-3 border-0 bg-transparent p-0 text-left focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] max-[44rem]:min-w-auto max-[36rem]:min-w-control-default" type="button" onClick={() => void changeMode('workspace')} aria-label="Open workspace">
+          <span class="brand-mark relative block size-[2.125rem] shrink-0 rounded-sm border border-naval bg-raised before:absolute before:top-1/2 before:right-1 before:left-1 before:h-px before:bg-signal-line before:content-['']" aria-hidden="true">
+            <i class="absolute bottom-[0.4375rem] left-2 z-1 h-1.5 w-0.5 bg-signal" />
+            <i class="absolute bottom-[0.4375rem] left-[0.9375rem] z-1 h-3.75 w-0.5 bg-coral" />
+            <i class="absolute bottom-[0.4375rem] left-[1.375rem] z-1 h-2.5 w-0.5 bg-signal" />
+          </span>
+          <span>
+            <strong class="block text-base tracking-[-0.01em] max-[44rem]:hidden">PostOwl</strong>
+            <small class="mt-0.5 block font-data text-[0.6875rem] leading-none font-[650] tracking-[0.06em] text-ink-muted max-[54rem]:hidden">Request observatory</small>
+          </span>
         </button>
-        <div class="topbar-actions">
-          <label class="environment-select">
-            <span>Environment</span>
-            <select value={selectedEnvironmentId() ?? ''} onChange={(event) => void selectEnvironment(event.currentTarget.value)} disabled={requestBusy() || !workspace()?.environments.length}>
+        <div class="topbar-actions flex min-w-0 items-center justify-end gap-2 max-[68rem]:[&_.action]:px-2 max-[44rem]:gap-1 max-[44rem]:[&_.action]:px-2 max-[44rem]:[&_.action]:text-xs max-[36rem]:grid max-[36rem]:w-full max-[36rem]:grid-cols-[minmax(0,1fr)_auto_auto] max-[36rem]:gap-1 max-[36rem]:[&_.action]:min-w-0 [&_.topbar-rule~.action]:border-transparent [&_.topbar-rule~.action]:bg-transparent [&_.topbar-rule~.action]:text-ink-muted">
+          <label class="environment-select flex items-center gap-2 text-xs font-semibold text-ink-muted max-[36rem]:col-span-full max-[36rem]:min-w-0">
+            <span class="max-[54rem]:hidden">Environment</span>
+            <select class="min-h-control-default w-42 rounded-sm border border-hairline bg-raised px-2 py-1 text-graphite hover:border-signal-line focus-visible:relative focus-visible:z-2 focus-visible:outline-0 focus-visible:[box-shadow:var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-48 max-[44rem]:w-28 max-[36rem]:w-full max-[36rem]:min-w-0" value={selectedEnvironmentId() ?? ''} onChange={(event) => void selectEnvironment(event.currentTarget.value)} disabled={requestBusy() || !workspace()?.environments.length}>
               <option value="">No environment</option>
               <For each={workspace()?.environments ?? []}>{(environment) => <option value={environment.id}>{environment.name}</option>}</For>
             </select>
           </label>
           <ActionButton onClick={openEnvironments}>Environments</ActionButton>
-          <span class="topbar-rule" />
+          <span class="topbar-rule mx-1 h-7 w-px bg-hairline max-[44rem]:hidden" />
           <ActionButton onClick={() => void importWorkspace()} disabled={transferring()}>{transferring() ? 'Working…' : 'Import'}</ActionButton>
           <ActionButton onClick={() => void exportWorkspace()} disabled={!workspace() || transferring()}>Export</ActionButton>
         </div>
       </header>
 
-      <Show when={!loading()} fallback={<main class="startup-state" role="status" aria-live="polite" aria-busy="true"><span class="owl-loader" aria-hidden="true" /><strong>Opening observatory</strong><span>Loading your local workspace…</span></main>}>
-        <Show when={!loadError()} fallback={<main class="startup-state error-state" role="alert"><strong>Workspace unavailable</strong><span>{loadError()}</span><ActionButton tone="primary" onClick={() => void loadWorkspace()}>Try again</ActionButton></main>}>
+      <Show when={!loading()} fallback={<main class="startup-state grid h-full place-content-center justify-items-center gap-3 p-8 text-center text-ink-muted max-[36rem]:p-4" role="status" aria-live="polite" aria-busy="true"><span class="owl-loader size-10 animate-spin rounded-full border-2 border-hairline border-t-signal motion-reduce:animate-none" aria-hidden="true" /><strong>Opening observatory</strong><span class="m-0 max-w-md leading-[1.6]">Loading your local workspace…</span></main>}>
+        <Show when={!loadError()} fallback={<main class="startup-state error-state grid h-full place-content-center justify-items-center gap-3 p-8 text-center text-ink-muted max-[36rem]:p-4" role="alert"><strong class="text-coral-ink">Workspace unavailable</strong><span class="m-0 max-w-md leading-[1.6]">{loadError()}</span><ActionButton tone="primary" onClick={() => void loadWorkspace()}>Try again</ActionButton></main>}>
           <Show when={workspace()}>{(currentWorkspace) => (
-            <div class="workspace-shell">
+            <div class="workspace-shell grid min-h-0 grid-cols-[17.5rem_minmax(0,1fr)] max-[68rem]:grid-cols-[15.5rem_minmax(0,1fr)] max-[44rem]:grid-cols-[11.5rem_minmax(0,1fr)] max-[36rem]:grid-cols-[minmax(0,1fr)] max-[36rem]:grid-rows-[clamp(calc(2*var(--spacing-control-default)+1rem),34%,calc(3*var(--spacing-control-default)+0.75rem))_minmax(0,1fr)]">
               <Show when={mode() === 'environments'} fallback={
                 <Sidebar
                   collections={currentWorkspace().collections}
@@ -565,21 +537,31 @@ export default function App() {
                   onClearHistory={() => void clearHistory()}
                 />
               }>
-                <aside class="sidebar environment-sidebar">
-                  <div class="sidebar-section-head"><span>Environments</span><ActionButton onClick={() => void createEnvironment()} title="New environment" ariaLabel="New environment">+</ActionButton></div>
-                  <div class="tree-scroll">
-                    <For each={currentWorkspace().environments} fallback={<div class="sidebar-empty"><strong>No environments</strong><span>Create one to manage reusable request variables.</span><ActionButton tone="primary" onClick={() => void createEnvironment()}>Create environment</ActionButton></div>}>
-                      {(environment) => <button class="environment-item" classList={{ active: environment.id === environmentDraft()?.id }} aria-current={environment.id === environmentDraft()?.id ? 'page' : undefined} onClick={() => void selectEnvironment(environment.id)}><span class="environment-signal" aria-hidden="true" /><span><strong>{environment.name}</strong><small>{environment.variables.filter((item) => item.enabled).length} active variables</small></span></button>}
+                <aside class="sidebar environment-sidebar grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] border-r border-border-strong bg-panel [&_button.environment-item]:focus-visible:relative [&_button.environment-item]:focus-visible:z-2 [&_button.environment-item]:focus-visible:outline-0 [&_button.environment-item]:focus-visible:[box-shadow:var(--focus-ring)] max-[36rem]:border-r-0 max-[36rem]:border-b">
+                  <div class="sidebar-section-head flex min-h-11 items-center justify-between border-b border-hairline px-3 py-2 font-data text-[0.6875rem] leading-none font-bold tracking-[0.07em] text-ink-muted before:mr-2 before:h-0.5 before:w-4 before:bg-signal before:content-[''] max-[36rem]:min-h-control-default max-[36rem]:py-1 [&>.action]:min-h-7 [&>.action]:px-2"><span class="mr-auto">Environments</span><ActionButton onClick={() => void createEnvironment()} title="New environment" ariaLabel="New environment">+</ActionButton></div>
+                  <div class="tree-scroll min-h-0 overflow-auto">
+                    <For each={currentWorkspace().environments} fallback={<div class="sidebar-empty flex flex-col items-start gap-2 px-4 py-6 text-[0.8125rem] leading-[1.5] text-ink-muted"><strong class="text-graphite">No environments</strong><span>Create one to manage reusable request variables.</span><ActionButton tone="primary" onClick={() => void createEnvironment()}>Create environment</ActionButton></div>}>
+                      {(environment) => <button class="environment-item flex min-h-14 w-full items-center gap-3 border-0 border-b border-hairline bg-transparent p-3 text-left text-ink-muted hover:bg-naval-soft [&.active]:bg-signal-soft [&.active]:shadow-[inset_3px_0_var(--color-signal)] max-[36rem]:min-h-control-default max-[36rem]:py-2" classList={{ active: environment.id === environmentDraft()?.id }} aria-current={environment.id === environmentDraft()?.id ? 'page' : undefined} onClick={() => void selectEnvironment(environment.id)}><span class="environment-signal size-2 shrink-0 rounded-full border border-signal shadow-[0_0_0_0.1875rem_var(--color-signal-soft)]" aria-hidden="true" /><span class="min-w-0"><strong class="block truncate">{environment.name}</strong><small class="mt-1 block truncate font-data text-[0.6875rem] leading-[1.2] text-ink-muted">{environment.variables.filter((item) => item.enabled).length} active variables</small></span></button>}
                     </For>
                   </div>
                 </aside>
               </Show>
 
-              <main class="main-stage">
+              <main class="main-stage @container min-h-0 min-w-0 overflow-hidden bg-canvas">
                 <Show when={mode() === 'environments'} fallback={
                   <Show when={mode() === 'history'} fallback={
-                    <Show when={draft()} fallback={<div class="main-empty"><span class="empty-glyph">HTTP</span><h1>Ready for a request</h1><p>Create a request in a collection or keep it unfiled.</p><ActionButton tone="primary" onClick={() => void createRequest(null)}>Create request</ActionButton></div>}>
-                      <div class="workbench" style={`--request-pane:${requestPaneWidth()}%`}>
+                    <Show
+                      when={draft()}
+                      fallback={
+                        <div class="main-empty grid h-full place-content-center justify-items-center gap-3 p-8 text-center text-ink-muted max-[36rem]:p-4">
+                          <span class="empty-glyph relative grid h-12 min-w-16 place-items-center rounded-sm border border-signal-line bg-raised font-data text-[0.6875rem] leading-none font-[750] tracking-[0.08em] text-naval after:absolute after:-right-4 after:h-px after:w-4 after:bg-signal after:content-['']">HTTP</span>
+                          <h1 class="my-1 mb-2 text-2xl font-[750] tracking-[-0.02em] text-graphite">Ready for a request</h1>
+                          <p class="m-0 max-w-md leading-[1.6]">Create a request in a collection or keep it unfiled.</p>
+                          <ActionButton tone="primary" onClick={() => void createRequest(null)}>Create request</ActionButton>
+                        </div>
+                      }
+                    >
+                      <div class="workbench grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(22rem,1fr)_minmax(19rem,0.9fr)] overflow-auto max-[36rem]:w-full max-[36rem]:grid-rows-[minmax(19rem,1fr)_minmax(17rem,0.9fr)] [&>.request-editor]:border-b [&>.request-editor]:border-border-strong">
                         <RequestEditor
                           draft={draft()!}
                           onDraftChange={updateRequestDraft}
@@ -594,34 +576,49 @@ export default function App() {
                           onSend={() => void sendRequest()}
                           onDelete={() => void deleteRequest()}
                         />
-                        <button
-                          type="button"
-                          class="signal-spine"
-                          data-state={sending() ? 'pending' : response()?.error ? 'bad' : response() ? 'good' : 'idle'}
-                          role="separator"
-                          aria-label="Resize request and response panels"
-                          aria-orientation="vertical"
-                          aria-valuemin="35"
-                          aria-valuemax="70"
-                          aria-valuenow={Math.round(requestPaneWidth())}
-                          aria-valuetext={`${Math.round(requestPaneWidth())}% request, ${100 - Math.round(requestPaneWidth())}% response`}
-                          title="Drag to resize · Home/End for limits · 0 to reset"
-                          onPointerDown={beginWorkbenchResize}
-                          onKeyDown={resizeWorkbenchFromKeyboard}
-                          onDblClick={() => setRequestPaneWidth(55)}
-                        >
-                          <span aria-hidden="true" />
-                        </button>
                         <ResponsePanel response={response()} pending={sending()} />
                       </div>
                     </Show>
                   }>
-                    <Show when={selectedHistory()} keyed fallback={<div class="main-empty"><span class="empty-glyph">REC</span><h1>Select a recorded request</h1><p>History preserves the exact response and telemetry from each transmission.</p></div>}>
-                      {(entry) => <div class="history-stage"><header class="history-title"><span class={`method-tag method-${entry.method.toLowerCase()}`}>{entry.method}</span><div><span class="eyebrow">Recorded transmission</span><h1>{entry.requestName}</h1><p class="mono">{entry.url}</p><time dateTime={new Date(entry.executedAt).toISOString()}>{new Date(entry.executedAt).toLocaleString()}</time></div></header><ResponsePanel response={entry.response} /></div>}
+                    <Show
+                      when={selectedHistory()}
+                      keyed
+                      fallback={
+                        <div class="main-empty grid h-full place-content-center justify-items-center gap-3 p-8 text-center text-ink-muted max-[36rem]:p-4">
+                          <span class="empty-glyph relative grid h-12 min-w-16 place-items-center rounded-sm border border-signal-line bg-raised font-data text-[0.6875rem] leading-none font-[750] tracking-[0.08em] text-naval after:absolute after:-right-4 after:h-px after:w-4 after:bg-signal after:content-['']">REC</span>
+                          <h1 class="my-1 mb-2 text-2xl font-[750] tracking-[-0.02em] text-graphite">Select a recorded request</h1>
+                          <p class="m-0 max-w-md leading-[1.6]">History preserves the exact response and telemetry from each transmission.</p>
+                        </div>
+                      }
+                    >
+                      {(entry) => (
+                        <div class="history-stage grid h-full grid-rows-[auto_minmax(0,1fr)]">
+                          <header class="history-title flex min-h-20 items-center gap-4 border-b border-border-strong bg-raised p-4 max-[36rem]:min-h-0 max-[36rem]:flex-wrap max-[36rem]:items-start max-[36rem]:p-3">
+                            <MethodTag method={entry.method} />
+                            <div class="min-w-0">
+                              <span class="eyebrow mb-1 flex items-center gap-1.5 font-data text-[0.6875rem] leading-none font-bold tracking-[0.07em] text-ink-muted">Recorded transmission</span>
+                              <h1 class="my-1 mb-2 text-lg font-[750] tracking-[-0.02em] text-graphite">{entry.requestName}</h1>
+                              <p class="mono m-0 max-w-3xl truncate text-xs text-ink-muted max-[36rem]:whitespace-normal max-[36rem]:[overflow-wrap:anywhere]">{entry.url}</p>
+                              <time class="mt-1 block font-data text-[0.6875rem] leading-[1.2] text-ink-muted" dateTime={new Date(entry.executedAt).toISOString()}>{new Date(entry.executedAt).toLocaleString()}</time>
+                            </div>
+                          </header>
+                          <ResponsePanel response={entry.response} />
+                        </div>
+                      )}
                     </Show>
                   </Show>
                 }>
-                  <Show when={environmentDraft()} fallback={<div class="main-empty"><span class="empty-glyph">ENV</span><h1>Build a variable deck</h1><p>Keep host names and reusable values separate from requests.</p><ActionButton tone="primary" onClick={() => void createEnvironment()}>Create environment</ActionButton></div>}>
+                  <Show
+                    when={environmentDraft()}
+                    fallback={
+                      <div class="main-empty grid h-full place-content-center justify-items-center gap-3 p-8 text-center text-ink-muted max-[36rem]:p-4">
+                        <span class="empty-glyph relative grid h-12 min-w-16 place-items-center rounded-sm border border-signal-line bg-raised font-data text-[0.6875rem] leading-none font-[750] tracking-[0.08em] text-naval after:absolute after:-right-4 after:h-px after:w-4 after:bg-signal after:content-['']">ENV</span>
+                        <h1 class="my-1 mb-2 text-2xl font-[750] tracking-[-0.02em] text-graphite">Build a variable deck</h1>
+                        <p class="m-0 max-w-md leading-[1.6]">Keep host names and reusable values separate from requests.</p>
+                        <ActionButton tone="primary" onClick={() => void createEnvironment()}>Create environment</ActionButton>
+                      </div>
+                    }
+                  >
                     <EnvironmentEditor draft={environmentDraft()!} onDraftChange={setEnvironmentDraft} dirty={environmentDirty()} errors={environmentValidationErrors()} busy={requestBusy()} onSave={() => void saveEnvironment()} onDelete={() => void deleteEnvironment()} />
                   </Show>
                 </Show>
@@ -631,7 +628,7 @@ export default function App() {
         </Show>
       </Show>
 
-      <Show when={toast()} keyed>{(currentToast) => <div class="toast" classList={{ bad: currentToast.tone === 'bad' }} role={currentToast.tone === 'bad' ? 'alert' : 'status'} aria-live={currentToast.tone === 'bad' ? 'assertive' : 'polite'}><span />{currentToast.text}</div>}</Show>
+      <Show when={toast()} keyed>{(currentToast) => <div class="toast fixed right-4 bottom-4 z-20 flex max-w-md items-center gap-2 rounded-sm border border-hairline bg-raised px-4 py-3 text-graphite shadow-float animate-[toast-in_180ms_var(--ease-out)] motion-reduce:animate-none max-[36rem]:right-2 max-[36rem]:bottom-2 max-[36rem]:left-2 max-[36rem]:max-w-none" classList={{ bad: currentToast.tone === 'bad' }} role={currentToast.tone === 'bad' ? 'alert' : 'status'} aria-live={currentToast.tone === 'bad' ? 'assertive' : 'polite'}><span class="size-[0.4375rem] rounded-full" classList={{ 'bg-signal': currentToast.tone === 'good', 'bg-coral': currentToast.tone === 'bad' }} />{currentToast.text}</div>}</Show>
     </div>
   );
 }
