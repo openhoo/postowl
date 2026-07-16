@@ -42,6 +42,7 @@ export interface Environment {
 export interface HeaderValue {
   name: string;
   value: string;
+  encoding: 'utf8' | 'base64';
 }
 
 export interface AssertionResult {
@@ -54,8 +55,10 @@ export interface ResponseData {
   status: number | null;
   headers: HeaderValue[];
   body: string;
+  bodyEncoding: 'utf8' | 'base64';
   elapsed: number;
   size: number;
+  totalSize: number | null;
   truncated: boolean;
   assertions: AssertionResult[];
   logs: string[];

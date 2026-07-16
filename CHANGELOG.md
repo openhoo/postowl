@@ -1,5 +1,15 @@
 # postowl Changelog
 
+## Unreleased
+
+### Improvements
+
+- Harden request, environment, workspace import, and persistence validation.
+- Preserve exact response JSON values with raw and lossless pretty views.
+- Improve keyboard navigation, responsive layouts, field errors, dirty-state protection, and accessible control labels.
+- Prevent request-operation races and stale script-produced environment updates.
+- Make native end-to-end tests rebuild reliably on Node 26 and Wayland workstations.
+
 ## 0.3.0 (2026-07-16)
 
 ### Features

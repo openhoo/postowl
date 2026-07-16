@@ -5,6 +5,7 @@ export interface ActionButtonProps {
   tone?: 'primary' | 'quiet' | 'danger';
   disabled?: boolean;
   title?: string;
+  ariaLabel?: string;
   onClick?: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
   children: JSX.Element;
 }
@@ -20,6 +21,7 @@ export default function ActionButton(props: ActionButtonProps) {
       }}
       disabled={props.disabled ?? false}
       title={props.title}
+      aria-label={props.ariaLabel}
       onClick={props.onClick}
     >
       {props.children}

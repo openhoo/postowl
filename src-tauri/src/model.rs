@@ -78,11 +78,20 @@ pub struct Environment {
     pub updated_at: i64,
 }
 
+pub const UTF8_ENCODING: &str = "utf8";
+pub const BASE64_ENCODING: &str = "base64";
+
+fn default_encoding() -> String {
+    UTF8_ENCODING.into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HeaderValue {
     pub name: String,
     pub value: String,
+    #[serde(default = "default_encoding")]
+    pub encoding: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,8 +109,12 @@ pub struct ResponseData {
     pub status: Option<u16>,
     pub headers: Vec<HeaderValue>,
     pub body: String,
+    #[serde(default = "default_encoding")]
+    pub body_encoding: String,
     pub elapsed: u64,
     pub size: u64,
+    #[serde(default)]
+    pub total_size: Option<u64>,
     pub truncated: bool,
     #[serde(default)]
     pub assertions: Vec<AssertionResult>,
@@ -164,6 +177,8 @@ pub struct PreScriptResult {
     pub request: Option<ScriptRequest>,
     pub variables: Option<serde_json::Map<String, Value>>,
     #[serde(default)]
+    pub assertions: Vec<AssertionResult>,
+    #[serde(default)]
     pub logs: Vec<String>,
 }
 
@@ -183,4 +198,29 @@ pub struct PostScriptResult {
     #[serde(default)]
     pub logs: Vec<String>,
     pub variables: Option<serde_json::Map<String, Value>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_history_response_defaults_new_encoding_and_size_metadata() {
+        let json = r#"{
+            "id":"history","requestId":"request","requestName":"Legacy",
+            "method":"GET","url":"https://example.test","executedAt":1,
+            "response":{
+                "status":200,
+                "headers":[{"name":"content-type","value":"text/plain"}],
+                "body":"owl","elapsed":2,"size":3,"truncated":false,
+                "assertions":[],"logs":[],"error":null
+            }
+        }"#;
+        let history: HistoryEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(history.response.body_encoding, UTF8_ENCODING);
+        assert_eq!(history.response.total_size, None);
+        assert_eq!(history.response.headers[0].encoding, UTF8_ENCODING);
+        assert_eq!(history.response.body, "owl");
+        assert_eq!(history.response.size, 3);
+    }
 }

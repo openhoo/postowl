@@ -77,7 +77,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: 24
+          node-version: 26
           cache: pnpm
 
       - name: Set up Rust
@@ -109,8 +109,8 @@ jobs:
       - name: Check frontend
         run: pnpm check
 
-      - name: Build frontend
-        run: pnpm build
+      - name: Build native end-to-end application
+        run: pnpm test:e2e:build
 
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -121,14 +121,12 @@ jobs:
       - name: Test Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
-      - name: Build native end-to-end binary
-        run: cargo build --manifest-path src-tauri/Cargo.toml --features e2e,tauri/custom-protocol
 
       - name: Test native end-to-end workflows
         env:
           POSTOWL_DATA_DIR: ${{ runner.temp }}/postowl-e2e
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
-        run: xvfb-run --auto-servernum pnpm test:e2e
+        run: xvfb-run --auto-servernum pnpm test:e2e:run
 
       - name: Check version synchronization
         run: node scripts/sync-version.ts --check

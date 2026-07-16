@@ -21,7 +21,7 @@ interface NativeBrowser {
   tauri: {
     switchWindow(label: string): Promise<void>;
   };
-  keys(value: string): Promise<void>;
+  keys(value: string | string[]): Promise<void>;
   reloadSession(): Promise<void>;
   refresh(): Promise<void>;
 }
@@ -32,6 +32,8 @@ interface Expectation {
   toExist(): Promise<void>;
   toHaveText(expected: unknown): Promise<void>;
   toHaveValue(expected: unknown): Promise<void>;
+  toHaveAttribute(name: string, value: string): Promise<void>;
+  toBeFocused(): Promise<void>;
 }
 
 interface ExpectFunction {
@@ -49,11 +51,45 @@ declare function it(name: string, test: () => Promise<void>): void;
 declare function before(hook: () => Promise<void>): void;
 declare function after(hook: () => Promise<void>): void;
 
+type NamedValue = { id: string; name: string; value: string; enabled: boolean };
+type PersistedRequest = {
+  id: string;
+  name: string;
+  collectionId: string | null;
+  method: string;
+  url: string;
+  headers: NamedValue[];
+  query: NamedValue[];
+  bodyMode: string;
+  body: string;
+  preRequestScript: string;
+  postResponseScript: string;
+};
+type PersistedResponse = {
+  status: number | null;
+  headers: Array<{ name: string; value: string; encoding: 'utf8' | 'base64' }>;
+  body: string;
+  bodyEncoding: 'utf8' | 'base64';
+  elapsed: number;
+  size: number;
+  totalSize: number | null;
+  truncated: boolean;
+  assertions: Array<{ name: string; passed: boolean; message: string }>;
+  logs: string[];
+  error: string | null;
+};
 type Workspace = {
   collections: Array<{ id: string; name: string }>;
-  requests: Array<{ id: string; name: string; collectionId: string | null }>;
-  environments: Array<{ id: string; name: string }>;
-  history: Array<{ id: string; requestName: string }>;
+  requests: PersistedRequest[];
+  environments: Array<{ id: string; name: string; variables: NamedValue[] }>;
+  history: Array<{
+    id: string;
+    requestId: string;
+    requestName: string;
+    method: string;
+    url: string;
+    response: PersistedResponse;
+  }>;
 };
 
 function isWorkspace(value: unknown): value is Workspace {
@@ -81,6 +117,17 @@ let echoOrigin = '';
 const aria = (name: string) => $(`[aria-label="${name}"]`);
 const button = (text: string) => $(`button*=${text}`);
 
+function assertContract(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(`Persisted contract failed: ${message}`);
+}
+
+async function refreshRenderer(expectedSelector: string) {
+  await browser.refresh();
+  await browser.tauri.switchWindow('main');
+  await expect($(expectedSelector)).toBeDisplayed();
+}
+
+
 async function waitForWorkspace() {
   await expect($('h1=Ready for a request')).toBeDisplayed();
 }
@@ -89,17 +136,16 @@ async function clickSettingsTab(name: 'query' | 'headers' | 'body' | 'scripts') 
   await aria('Request settings').$(`button=${name}`).click();
 }
 
-async function setNamedRow(keyLabel: string, valueLabel: string, name: string, value: string, index = 0) {
-  const keys = await $$(`[aria-label="${keyLabel}"]`);
-  const values = await $$(`[aria-label="${valueLabel}"]`);
-  await keys[index].setValue(name);
-  await values[index].setValue(value);
+async function setNamedRow(kind: string, name: string, value: string, index = 0) {
+  const position = index + 1;
+  await aria(`${kind} ${position} name`).setValue(name);
+  await aria(`${kind} ${position} value`).setValue(value);
 }
 
 async function addEnvironmentVariable(name: string, value: string) {
+  const variables = await $$('[aria-label^="Variable "][aria-label$=" name"]');
   await button('Add variable').click();
-  const variables = await $$('[aria-label="Variable"]');
-  await setNamedRow('Variable', 'Value', name, value, variables.length - 1);
+  await setNamedRow('Variable', name, value, variables.length);
 }
 
 async function sendAndWaitFor(status: string) {
@@ -151,19 +197,24 @@ describe('PostOwl native workspace', () => {
         let body: unknown = rawBody;
         try { body = JSON.parse(rawBody); } catch { /* Echo non-JSON bodies unchanged. */ }
         const url = new URL(request.url ?? '/', echoOrigin);
-        const payload = JSON.stringify({
+        const serialized = JSON.stringify({
           method: request.method,
           path: url.pathname,
           query: Object.fromEntries(url.searchParams),
           headers: request.headers,
           body
         });
-        response.writeHead(201, {
-          'content-type': 'application/json',
-          'x-echo-server': 'postowl-e2e',
-          'content-length': Buffer.byteLength(payload)
-        });
-        response.end(payload);
+        const payload = `{"largeId":9007199254740993,${serialized.slice(1)}`;
+        const finish = () => {
+          response.writeHead(201, {
+            'content-type': 'application/json',
+            'x-echo-server': 'postowl-e2e',
+            'content-length': Buffer.byteLength(payload)
+          });
+          response.end(payload);
+        };
+        if (url.pathname === '/delayed') setTimeout(finish, 250);
+        else finish();
       });
     });
     await new Promise<void>((resolve, reject) => {
@@ -190,7 +241,7 @@ describe('PostOwl native workspace', () => {
     await button('Workspace').click();
 
     await $('button[title="New collection"]').click();
-    const collectionName = aria('Collection name');
+    const collectionName = aria('Collection name for Untitled collection');
     await expect(collectionName).toBeDisplayed();
     await collectionName.setValue('Echo collection');
     await browser.keys('Enter');
@@ -207,23 +258,38 @@ describe('PostOwl native workspace', () => {
     });
     await expect(aria('HTTP method')).toHaveValue('POST');
     await aria('Request URL').setValue(`${echoOrigin}/echo`);
+    const queryTab = aria('Request settings').$('button=query');
+    const headersTab = aria('Request settings').$('button=headers');
+    await queryTab.click();
+    await browser.keys('ArrowRight');
+    await expect(headersTab).toHaveAttribute('aria-selected', 'true');
+    await expect(headersTab).toBeFocused();
+    await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })));
+    await expect(queryTab).toHaveAttribute('aria-selected', 'true');
+    await expect(queryTab).toBeFocused();
 
     await button('Add parameter').click();
-    await setNamedRow('Parameter', 'Value', 'source', '{{source}}');
+    await setNamedRow('Query parameter', 'source', '{{source}}');
     await clickSettingsTab('headers');
     await button('Add header').click();
-    await setNamedRow('Header', 'Value', 'x-client', 'native-ui');
+    await setNamedRow('Header', 'x-client', 'native-ui');
     await clickSettingsTab('body');
     await aria('Body mode').$('button=json').click();
     await aria('Request body').setValue('{"message":"{{message}}","count":2}');
     await button('Save').click();
     await expect($('[role="status"]')).toHaveText('Request saved');
+    await refreshRenderer('[aria-label="Request editor"]');
+    await expect(aria('Request name')).toHaveValue('Echo request');
+    await expect(aria('HTTP method')).toHaveValue('POST');
+    await expect(aria('Request URL')).toHaveValue(`${echoOrigin}/echo`);
 
     await button('Environments').click();
     await button('Create environment').click();
     await expect(aria('Environment editor')).toBeDisplayed();
     await aria('Environment name').setValue('Local echo');
-    await setNamedRow('Variable', 'Value', 'host', echoOrigin);
+    await button('Add variable').click();
+    await expect(aria('Variable 1 value')).toHaveAttribute('type', 'password');
+    await setNamedRow('Variable', 'host', echoOrigin);
     await addEnvironmentVariable('source', 'environment');
     await addEnvironmentVariable('message', 'before-script');
     await button('Save environment').click();
@@ -258,11 +324,13 @@ describe('PostOwl native workspace', () => {
     const telemetry = aria('Response telemetry');
     await expect(telemetry).toHaveText(expect.stringMatching(/Elapsed\s*\d+\s+ms/));
     await expect(telemetry).toHaveText(expect.stringContaining('1/2'));
+    await aria('Response body view').$('button=Pretty').click();
     const responseBody = $('.response-body');
     await expect(responseBody).toHaveText(expect.stringContaining('"method": "POST"'));
     await expect(responseBody).toHaveText(expect.stringContaining('"source": "environment"'));
     await expect(responseBody).toHaveText(expect.stringContaining('"x-client": "native-ui"'));
     await expect(responseBody).toHaveText(expect.stringContaining('"x-script": "quickjs"'));
+    await expect(responseBody).toHaveText(expect.stringContaining('"largeId": 9007199254740993'));
     await expect(responseBody).toHaveText(expect.stringContaining('"message": "from-script"'));
 
     await aria('Response details').$('button*=headers').click();
@@ -278,6 +346,91 @@ describe('PostOwl native workspace', () => {
     await aria('Response details').$('button*=logs').click();
     await expect($('.log-list')).toHaveText(expect.stringContaining('pre hook ran'));
     await expect($('.log-list')).toHaveText(expect.stringContaining('post status 201'));
+    const responseBodyTab = aria('Response details').$('button*=body');
+    const responseLogsTab = aria('Response details').$('button*=logs');
+    await responseBodyTab.click();
+    await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })));
+    await expect(responseLogsTab).toHaveAttribute('aria-selected', 'true');
+    await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })));
+    await expect(responseBodyTab).toHaveAttribute('aria-selected', 'true');
+    const splitter = aria('Resize request and response panels');
+    await splitter.click();
+    await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })));
+    await expect(splitter).toHaveAttribute('aria-valuenow', '35');
+    await browser.execute(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: '0', bubbles: true })));
+    await expect(splitter).toHaveAttribute('aria-valuenow', '55');
+
+    const seededValue = await nativeInvoke('get_workspace');
+    if (!isWorkspace(seededValue)) throw new Error('Native workspace response was invalid');
+    const seededCollection = seededValue.collections.find((item) => item.name === 'Echo collection');
+    const seededRequest = seededValue.requests.find((item) => item.name === 'Echo request');
+    const seededEnvironment = seededValue.environments.find((item) => item.name === 'Local echo');
+    const seededHistory = seededValue.history.find((item) => item.requestName === 'Echo request');
+    assertContract(seededCollection && seededRequest && seededEnvironment && seededHistory, 'seeded entities exist');
+    assertContract(seededRequest.collectionId === seededCollection.id, 'request collection membership');
+    assertContract(seededRequest.method === 'POST', 'request method');
+    assertContract(seededRequest.url === `${echoOrigin}/echo`, 'request URL');
+    assertContract(seededRequest.bodyMode === 'json', 'request body mode');
+    assertContract(seededRequest.body === '{"message":"{{message}}","count":2}', 'request body');
+    assertContract(
+      seededRequest.query.length === 1 &&
+      seededRequest.query[0].name === 'source' &&
+      seededRequest.query[0].value === '{{source}}' &&
+      seededRequest.query[0].enabled,
+      'request query parameters'
+    );
+    assertContract(
+      seededRequest.headers.length === 1 &&
+      seededRequest.headers[0].name === 'x-client' &&
+      seededRequest.headers[0].value === 'native-ui' &&
+      seededRequest.headers[0].enabled,
+      'request headers'
+    );
+    assertContract(seededRequest.preRequestScript.includes("logs: ['pre hook ran']"), 'pre-request script');
+    assertContract(seededRequest.postResponseScript.includes('intentional failure'), 'post-response script');
+    assertContract(
+      seededEnvironment.variables.map(({ name, value, enabled }) => ({ name, value, enabled }))
+        .every((variable, index) => {
+          const expected = [
+            { name: 'host', value: echoOrigin, enabled: true },
+            { name: 'source', value: 'environment', enabled: true },
+            { name: 'message', value: 'from-script', enabled: true }
+          ][index];
+          return expected && variable.name === expected.name &&
+            variable.value === expected.value && variable.enabled === expected.enabled;
+        }) && seededEnvironment.variables.length === 3,
+      'environment variables'
+    );
+    assertContract(seededHistory.requestId === seededRequest.id, 'history request identity');
+    assertContract(seededHistory.method === 'POST' && seededHistory.url === `${echoOrigin}/echo?source=environment`, 'history request metadata');
+    assertContract(seededHistory.response.status === 201, 'history response status');
+    assertContract(seededHistory.response.error === null && !seededHistory.response.truncated, 'history response completion');
+    assertContract(seededHistory.response.size > 0, 'history captured response size');
+    assertContract(seededHistory.response.body.includes('"largeId":9007199254740993'), 'history response body');
+    assertContract(seededHistory.response.totalSize === seededHistory.response.size, 'history total response size');
+    assertContract(seededHistory.response.bodyEncoding === 'utf8', 'history response body encoding');
+    assertContract(
+      seededHistory.response.headers.some(({ name, value }) => name === 'x-echo-server' && value === 'postowl-e2e'),
+      'history response headers'
+    );
+    assertContract(
+      seededHistory.response.headers.every(({ encoding }) => encoding === 'utf8'),
+      'history response header encodings'
+    );
+    assertContract(
+      seededHistory.response.assertions.length === 2 &&
+      seededHistory.response.assertions[0].name === 'status is 201' &&
+      seededHistory.response.assertions[0].passed &&
+      seededHistory.response.assertions[1].name === 'intentional failure' &&
+      !seededHistory.response.assertions[1].passed &&
+      seededHistory.response.assertions[1].message === 'expected intentional failure',
+      'history assertions'
+    );
+    assertContract(
+      seededHistory.response.logs.includes('pre hook ran') &&
+      seededHistory.response.logs.includes('post status 201'),
+      'history script logs'
+    );
 
     await button('History').click();
     await expect($('.sidebar-section-head')).toHaveText(expect.stringContaining('1 RECORDS'));
@@ -285,17 +438,33 @@ describe('PostOwl native workspace', () => {
     await expect($('.history-title h1')).toHaveText('Echo request');
     await expect($('.response-body')).toHaveText(expect.stringContaining('from-script'));
 
-    await browser.reloadSession();
-    await browser.tauri.switchWindow('main');
-    await browser.refresh();
-    await expect(aria('Request editor')).toBeDisplayed();
+    await refreshRenderer('[aria-label="Request editor"]');
     await expect(aria('Request name')).toHaveValue('Echo request');
     await expect(aria('HTTP method')).toHaveValue('POST');
     await button('History').click();
     await expect($('.sidebar-section-head')).toHaveText(expect.stringContaining('1 RECORDS'));
     await $('.history-item').click();
     await expect($('.history-title h1')).toHaveText('Echo request');
+    const relaunchedValue = await nativeInvoke('get_workspace');
+    if (!isWorkspace(relaunchedValue)) throw new Error('Relaunched native workspace response was invalid');
+    assertContract(
+      relaunchedValue.collections.some(({ id }) => id === seededCollection.id) &&
+      relaunchedValue.requests.some(({ id }) => id === seededRequest.id) &&
+      relaunchedValue.environments.some(({ id }) => id === seededEnvironment.id) &&
+      relaunchedValue.history.some(({ id }) => id === seededHistory.id),
+      'stable entity IDs across renderer reloads'
+    );
     await button('Workspace').click();
+    await browser.execute(() => {
+      const select = document.querySelector<HTMLSelectElement>('.environment-select select');
+      const option = Array.from(select?.options ?? []).find((item) => item.text === 'Local echo');
+      if (!select || !option) throw new Error('Local echo environment option is missing');
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await button('Environments').click();
+    await expect(aria('Variable 3 value')).toHaveValue('from-script');
+    await aria('Open workspace').click();
 
     await clickSettingsTab('scripts');
     await aria('Script stage').$('button=Before request').click();
@@ -303,15 +472,22 @@ describe('PostOwl native workspace', () => {
     await clickSettingsTab('query');
 
     await aria('Request URL').setValue('not a valid URL');
-    await sendAndWaitFor('ERR');
-    await expect($('[role="alert"]')).toHaveText(expect.stringContaining('Request failed'));
-
+    await button('Send').click();
+    await expect($('[role="alert"]')).toHaveText('Enter a valid HTTP or HTTPS URL.');
+    await expect(aria('Request URL')).toBeFocused();
     await aria('Request URL').setValue(`${echoOrigin}/echo`);
+    await clickSettingsTab('query');
+    await button('Add parameter').click();
+    await button('Send').click();
+    await expect($('[role="alert"]')).toHaveText('Enter a query parameter name.');
+    await expect(aria('Query parameter 2 name')).toBeFocused();
+    await aria('Enable Query parameter 2').click();
     await clickSettingsTab('body');
     await aria('Request body').setValue('{ invalid json');
     await button('Send').click();
-    await expect($('[role="alert"]')).toHaveText(expect.stringContaining('invalid JSON request body'));
+    await expect($('[role="alert"]')).toHaveText(expect.stringContaining('Enter valid JSON.'));
 
+    await expect(aria('Request body')).toBeFocused();
     await aria('Request body').setValue('{"recovered":true}');
     await clickSettingsTab('scripts');
     await aria('Script stage').$('button=Before request').click();
@@ -324,12 +500,24 @@ describe('PostOwl native workspace', () => {
     await aria('Post-response script').setValue("return { assertions: [{ name: 'recovery', passed: true, message: '' }], logs: ['valid again'] };");
     await sendAndWaitFor('201');
     await aria('Response details').$('button*=body').click();
+    await aria('Response body view').$('button=Pretty').click();
     await expect($('.response-body')).toHaveText(expect.stringContaining('"recovered": true'));
 
     await aria('New unfiled request').click();
     await aria('Request name').setValue('Disposable request');
+    await aria('Request URL').setValue(`${echoOrigin}/disposable`);
     await button('Save').click();
     await expect($('[role="status"]')).toHaveText('Request saved');
+
+    await aria('Request URL').setValue(`${echoOrigin}/delayed`);
+    await button('Save').click();
+    await expect($('[role="status"]')).toHaveText('Request saved');
+    await button('Send').click();
+    await aria('Echo request in Echo collection').click();
+    await expect(aria('Request name')).toHaveValue('Echo request');
+    await expect($('[role="status"]')).toHaveText('Response recorded');
+    await expect(aria('Response telemetry')).not.toExist();
+    await aria('Disposable request, unfiled').click();
 
     const workspaceValue = await nativeInvoke('get_workspace');
     if (!isWorkspace(workspaceValue)) throw new Error('Native workspace response was invalid');
@@ -339,21 +527,17 @@ describe('PostOwl native workspace', () => {
     if (!disposable || !collection || !environment) throw new Error('Expected persisted cleanup fixtures');
 
     await expect(button('Delete')).toBeDisplayed();
-    await expect(aria('Delete Echo collection')).toBeDisplayed();
+    await expect(aria('Delete collection Echo collection')).toBeDisplayed();
     await button('History').click();
     await expect(button('Clear')).toBeDisplayed();
 
-    // Native confirmation dialogs are outside WebDriver control. Exercise the production
-    // commands through real IPC, then relaunch and verify their user-visible workspace result.
+    // WebDriver cannot control native confirmation dialogs and App owns the production
+    // handlers, so keep IPC fixture teardown explicitly separate from UI coverage above.
     await nativeInvoke('delete_request', { id: disposable.id });
     await nativeInvoke('delete_collection', { id: collection.id });
     await nativeInvoke('clear_history');
     await nativeInvoke('delete_environment', { id: environment.id });
-    await browser.reloadSession();
-    await browser.tauri.switchWindow('main');
-    await browser.refresh();
-
-    await waitForWorkspace();
+    await refreshRenderer('h1=Ready for a request');
     await expect($('button=Echo request')).not.toExist();
     await expect($('button=Disposable request')).not.toExist();
     await button('History').click();

@@ -34,7 +34,7 @@ export function newRequest(collectionId: string | null): RequestDraft {
 }
 
 export function newEnvironment(): Environment {
-  return { id: uid(), name: 'New environment', variables: [namedValue()], createdAt: 0, updatedAt: 0 };
+  return { id: uid(), name: 'New environment', variables: [], createdAt: 0, updatedAt: 0 };
 }
 
 export function clone<T>(value: T): T {

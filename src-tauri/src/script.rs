@@ -92,17 +92,38 @@ fn run<I: Serialize, O: DeserializeOwned>(script: &str, input: &I) -> AppResult<
         if encoded.len() > JSON_LIMIT {
             return Err(AppError::Script("script output exceeds 2 MiB".into()));
         }
-        Ok(serde_json::from_str(&encoded)?)
+        serde_json::from_str(&encoded)
+            .map_err(|error| AppError::Script(format!("invalid script result: {error}")))
     });
     cancelled.store(true, Ordering::Relaxed);
     result
 }
 
+fn retain_newest<T>(items: &mut Vec<T>, limit: usize) {
+    if items.len() > limit {
+        items.drain(..items.len() - limit);
+    }
+}
+
 fn bound_logs(logs: &mut Vec<String>) {
-    logs.truncate(MAX_LOGS);
+    retain_newest(logs, MAX_LOGS);
     for log in logs {
         *log = trim_text(std::mem::take(log));
     }
+}
+
+fn bound_assertions(assertions: &mut Vec<crate::model::AssertionResult>) -> AppResult<()> {
+    retain_newest(assertions, MAX_ASSERTIONS);
+    for assertion in assertions {
+        assertion.name = trim_text(std::mem::take(&mut assertion.name))
+            .trim()
+            .to_owned();
+        if assertion.name.is_empty() {
+            return Err(AppError::Script("assertion names cannot be blank".into()));
+        }
+        assertion.message = trim_text(std::mem::take(&mut assertion.message));
+    }
+    Ok(())
 }
 
 pub fn run_pre(script: &str, input: &PreScriptContext) -> AppResult<PreScriptResult> {
@@ -111,6 +132,7 @@ pub fn run_pre(script: &str, input: &PreScriptContext) -> AppResult<PreScriptRes
     }
     let mut result: PreScriptResult = run(script, input)?;
     bound_logs(&mut result.logs);
+    bound_assertions(&mut result.assertions)?;
     Ok(result)
 }
 
@@ -120,11 +142,7 @@ pub fn run_post(script: &str, input: &PostScriptContext) -> AppResult<PostScript
     }
     let mut result: PostScriptResult = run(script, input)?;
     bound_logs(&mut result.logs);
-    result.assertions.truncate(MAX_ASSERTIONS);
-    for assertion in &mut result.assertions {
-        assertion.name = trim_text(std::mem::take(&mut assertion.name));
-        assertion.message = trim_text(std::mem::take(&mut assertion.message));
-    }
+    bound_assertions(&mut result.assertions)?;
     Ok(result)
 }
 
@@ -163,10 +181,13 @@ mod tests {
                 headers: vec![HeaderValue {
                     name: "content-type".into(),
                     value: "application/json".into(),
+                    encoding: crate::model::UTF8_ENCODING.into(),
                 }],
                 body: r#"{"token":"abc"}"#.into(),
+                body_encoding: crate::model::UTF8_ENCODING.into(),
                 elapsed: 3,
                 size: 15,
+                total_size: Some(15),
                 truncated: false,
                 assertions: vec![],
                 logs: vec![],
@@ -185,7 +206,12 @@ ctx.request.url += "/created";
 ctx.request.headers.push({ id: "header", name: "x-seed", value: String(ctx.variables.seed), enabled: true });
 ctx.request.bodyMode = "json";
 ctx.request.body = '{"ok":true}';
-return { request: ctx.request, variables: { token: "abc", count: 2 }, logs: ["prepared"] };
+return {
+  request: ctx.request,
+  variables: { token: "abc", count: 2 },
+  assertions: [{ name: "prepared", passed: true, message: "" }],
+  logs: ["prepared"]
+};
 "#,
             &pre_context(),
         )
@@ -200,6 +226,8 @@ return { request: ctx.request, variables: { token: "abc", count: 2 }, logs: ["pr
         assert_eq!(variables.get("token"), Some(&Value::String("abc".into())));
         assert_eq!(variables.get("count"), Some(&Value::from(2)));
         assert_eq!(result.logs, ["prepared"]);
+        assert_eq!(result.assertions.len(), 1);
+        assert!(result.assertions[0].passed);
     }
 
     #[test]
@@ -234,18 +262,23 @@ return {
         let script = r#"
 const long = "é".repeat(3000);
 return {
-  assertions: Array.from({ length: 105 }, (_, i) => ({ name: long, passed: i === 0, message: long })),
-  logs: Array.from({ length: 105 }, () => long),
+  assertions: Array.from({ length: 105 }, (_, i) => ({ name: String(i), passed: i === 0, message: long })),
+  logs: Array.from({ length: 105 }, (_, i) => String(i)),
   variables: null
 };
 "#;
         let result = run_post(script, &post_context()).unwrap();
         assert_eq!(result.logs.len(), MAX_LOGS);
         assert_eq!(result.assertions.len(), MAX_ASSERTIONS);
-        assert_eq!(result.logs[0].len(), MAX_TEXT);
-        assert_eq!(result.assertions[0].name.len(), MAX_TEXT);
+        assert_eq!(result.logs[0], "5");
+        assert_eq!(result.assertions[0].name, "5");
+        assert!(!result.assertions[0].passed);
         assert_eq!(result.assertions[0].message.len(), MAX_TEXT);
-        assert!(result.logs[0].is_char_boundary(result.logs[0].len()));
+        assert!(
+            result.assertions[0]
+                .message
+                .is_char_boundary(result.assertions[0].message.len())
+        );
     }
 
     #[test]
@@ -258,6 +291,8 @@ return {
             assert!(run_pre(script, &pre_context()).is_err(), "{script}");
         }
         assert!(run_pre("return Promise.resolve({});", &pre_context()).is_err());
+        let shape_error = run_pre("return { logs: 'not-an-array' };", &pre_context()).unwrap_err();
+        assert!(matches!(shape_error, AppError::Script(_)));
     }
 
     #[test]
@@ -306,6 +341,20 @@ return {
         let post = run_post("", &post_context()).unwrap();
         assert_eq!(post.assertions.len(), 0);
         assert!(post.variables.is_none());
+    }
+
+    #[test]
+    fn blank_assertion_names_are_rejected() {
+        let error = run_post(
+            "return { assertions: [{ name: '  ', passed: true, message: '' }] };",
+            &post_context(),
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("assertion names cannot be blank")
+        );
     }
 
     #[test]
