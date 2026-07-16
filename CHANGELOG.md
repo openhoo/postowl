@@ -1,5 +1,15 @@
 # postowl Changelog
 
+## 0.3.1 (2026-07-16)
+
+### Other Changes
+
+- sync v0.3.0 lockfile (fe9dd11)
+
+### Bug Fixes
+
+- harden request and persistence workflows (6f74204)
+
 ## Unreleased
 
 ### Improvements
